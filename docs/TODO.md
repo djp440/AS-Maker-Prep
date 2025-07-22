@@ -36,15 +36,21 @@
 
 ### 3. Shared - Utils (`src/shared/utils.js`)
 
-- [ ] 创建 `precisionUtils.js` 用于精度计算。
-  - [ ] 实现 `adjustPrice(price, tickSize)` 函数。
-  - [ ] 实现 `adjustQuantity(quantity, stepSize, minQty)` 函数。
-  - [ ] 实现 `checkMinNotional(price, quantity, minNotional)` 函数。
-- [ ] 创建 `timeUtils.js` 用于时间处理。
-  - [ ] 实现 `getTimestamp()` 函数。
-  - [ ] 实现 `formatDate(timestamp)` 函数。
-- [ ] 创建 `asyncUtils.js` 用于异步操作。
-  - [ ] 实现 `sleep(ms)` 函数。
+- [x] 创建 `precisionUtils.js` 用于精度计算。
+  - [x] 实现 `adjustPrice(price, tickSize)` 函数。
+  - [x] 实现 `adjustQuantity(quantity, stepSize, minQty)` 函数。
+  - [x] 实现 `checkMinNotional(price, quantity, minNotional)` 函数。
+- [x] 创建 `timeUtils.js` 用于时间处理。
+  - [x] 实现 `getTimestamp()` 函数。
+  - [x] 实现 `formatDate(timestamp)` 函数。
+  - [x] 实现 `getCurrentTimeString()` 函数。
+  - [x] 实现 `toISOString(timestamp)` 函数。
+- [x] 创建 `asyncUtils.js` 用于异步操作。
+  - [x] 实现 `sleep(ms)` 函数。
+  - [x] 实现 `withTimeout(promise, timeoutMs, errorMessage)` 函数。
+  - [x] 实现 `retry(fn, maxRetries, delayMs, shouldRetry)` 函数。
+- [x] 创建主要的 `utils.js` 文件，整合所有工具模块。
+- [x] 为所有工具函数编写完整的Jest单元测试。
 
 ---
 
