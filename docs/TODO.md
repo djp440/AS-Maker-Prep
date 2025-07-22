@@ -17,12 +17,12 @@
 
 ### 1. Shared - Config (`src/shared/config.js`)
 
-- [ ] 创建 `Config` 类或单例对象。
-- [ ] 实现加载 `.env` 文件的功能 (`dotenv`).
-- [ ] 实现异步读取和解析 `config.json` 的功能 (`fs/promises`).
-- [ ] 提供清晰的 getter 方法 (`getApiKey`, `getSymbols`, `getStrategyParams`).
-- [ ] 实现启动时配置验证逻辑（检查必要参数、验证格式）。
-- [ ] 如果验证失败，记录错误并终止程序。
+- [x] 创建 `Config` 类或单例对象。
+- [x] 实现加载 `.env` 文件的功能 (`dotenv`).
+- [x] 实现异步读取和解析 `config.json` 的功能 (`fs/promises`).
+- [x] 提供清晰的 getter 方法 (`getApiKey`, `getSymbols`, `getStrategyParams`).
+- [x] 实现启动时配置验证逻辑（检查必要参数、验证格式）。
+- [x] 如果验证失败，记录错误并终止程序。
 
 ### 2. Shared - Logger (`src/shared/logger.js`)
 

@@ -1,0 +1,16 @@
+{
+  "EXCHANGE": "bitget",
+  "SYMBOLS": [
+    {
+      "SYMBOL": "BTC/USDT:USDT",
+      "RISK_AVERSION": 1,
+      "BASE_SPREAD": 0.001,
+      "ORDER_AMOUNT": 0.01,
+      "MAX_INVENTORY": 0.2,
+      "VOLATILITY_LOOKBACK": 14,
+      "KLINE_INTERVAL": "15m",
+      "LEVERAGE": 2,
+      "TRADE_SIDE": "both"
+    }
+  ]
+}
