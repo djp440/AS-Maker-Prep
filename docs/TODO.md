@@ -1,14 +1,15 @@
 # 项目开发任务清单 (TODO)
 
 本文档根据开发顺序和模块职责，列出了详细的开发任务清单。
-
+[ ] - 未执行
+[x] - 已执行
 ## 0. 项目初始化
 
-- [ ] 创建项目目录结构 (`src/core`, `src/services`, `src/shared`, `src/monitoring`).
-- [ ] 初始化 `package.json` (`npm init -y`).
-- [ ] 安装核心依赖 (`npm install ccxt dotenv winston dayjs`).
-- [ ] 安装开发依赖 (`npm install -D jest` 或其他测试框架).
-- [ ] 配置 `.gitignore` 文件，忽略 `node_modules`, `.env`, `logs`.
+- [x] 创建项目目录结构 (`src/core`, `src/services`, `src/shared`, `src/monitoring`).
+- [x] 初始化 `package.json` (`npm init -y`).
+- [x] 安装核心依赖 (`npm install ccxt dotenv winston dayjs`).
+- [x] 安装开发依赖 (`npm install -D jest` 或其他测试框架).
+- [x] 配置 `.gitignore` 文件，忽略 `node_modules`, `.env`, `logs`.
 
 ---
 

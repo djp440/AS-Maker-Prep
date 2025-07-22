@@ -1,0 +1,24 @@
+{
+  "name": "as-maker-prep",
+  "version": "1.0.0",
+  "description": "基于AS模型的bitget合约做市商",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ccxt": "^4.4.95",
+    "dayjs": "^1.11.13",
+    "dotenv": "^17.2.0",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5"
+  }
+}
