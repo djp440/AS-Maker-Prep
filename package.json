@@ -16,7 +16,8 @@
     "ccxt": "^4.4.95",
     "dayjs": "^1.11.13",
     "dotenv": "^17.2.0",
-    "winston": "^3.17.0"
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0"
   },
   "devDependencies": {
     "jest": "^30.0.5"
