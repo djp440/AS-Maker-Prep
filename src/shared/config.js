@@ -65,14 +65,22 @@ class Config {
      */
     validate() {
         const { EXCHANGE, SYMBOLS } = this.config;
-        const { API_KEY, API_SECRET } = this.getApiCredentials();
+        const { apiKey, apiSecret } = this.getApiCredentials();
+        const isPaper = this.isPaperTrading();
 
         if (!EXCHANGE) {
             throw new Error('Config Error: EXCHANGE is not defined in config.json');
         }
 
-        if (!API_KEY || !API_SECRET) {
-            throw new Error('Config Error: API_KEY or API_SECRET is not defined in .env');
+        // 检查API凭证
+        if (isPaper) {
+            if (!process.env.PAPER_API_KEY || !process.env.PAPER_API_SECRET) {
+                throw new Error('Config Error: PAPER_API_KEY or PAPER_API_SECRET is not defined in .env');
+            }
+        } else {
+            if (!process.env.API_KEY || !process.env.API_SECRET) {
+                throw new Error('Config Error: API_KEY or API_SECRET is not defined in .env');
+            }
         }
 
         if (!Array.isArray(SYMBOLS) || SYMBOLS.length === 0) {
@@ -100,9 +108,9 @@ class Config {
     getApiCredentials() {
         const isPaper = process.env.PAPER_TRADING === 'true';
         return {
-            API_KEY: isPaper ? process.env.PAPER_API_KEY : process.env.API_KEY,
-            API_SECRET: isPaper ? process.env.PAPER_API_SECRET : process.env.API_SECRET,
-            API_PASSWORD: isPaper ? process.env.PAPER_API_PASSWORD : process.env.API_PASSWORD,
+            apiKey: isPaper ? process.env.PAPER_API_KEY : process.env.API_KEY,
+            apiSecret: isPaper ? process.env.PAPER_API_SECRET : process.env.API_SECRET,
+            passphrase: isPaper ? process.env.PAPER_API_PASSWORD : process.env.API_PASSWORD,
         };
     }
 

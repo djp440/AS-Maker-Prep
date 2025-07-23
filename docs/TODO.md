@@ -58,19 +58,19 @@
 
 ### 4. Services - Exchange Service (`src/services/exchange_service.js`)
 
-- [ ] 创建 `ExchangeService` 类，并在构造函数中初始化 `ccxt`。
-- [ ] 实现根据 `Config` 模块的配置，动态切换实盘和模拟盘模式。
-- [ ] 启用 `ccxt` 内置的速率限制 (`enableRateLimit`).
-- [ ] 实现 `loadMarkets()` 方法，在启动时加载并缓存市场信息。
-- [ ] 实现 `getMarket(symbol)` 方法，提供精度和限制信息。
-- [ ] 封装核心的 REST API 方法，并添加健壮的错误处理和重试逻辑：
-  - [ ] `fetchBalance()`
-  - [ ] `fetchPositions()`
-  - [ ] `createOrder()`
-  - [ ] `cancelOrder()`
-  - [ ] `fetchOpenOrders()`
-  - [ ] `setLeverage()`
-  - [ ] `fetchOHLCV()`
+- [x] 创建 `ExchangeService` 类，并在构造函数中初始化 `ccxt`。
+- [x] 实现根据 `Config` 模块的配置，动态切换实盘和模拟盘模式。
+- [x] 启用 `ccxt` 内置的速率限制 (`enableRateLimit`).
+- [x] 实现 `loadMarkets()` 方法，在启动时加载并缓存市场信息。
+- [x] 实现 `getMarket(symbol)` 方法，提供精度和限制信息。
+- [x] 封装核心的 REST API 方法，并添加健壮的错误处理和重试逻辑：
+  - [x] `fetchBalance()`
+  - [x] `fetchPositions()`
+  - [x] `createOrder()`
+  - [x] `cancelOrder()`
+  - [x] `fetchOpenOrders()`
+  - [x] `setLeverage()`
+  - [x] `fetchOHLCV()`
 
 ### 5. Services - WebSocket Manager (`src/services/websocket_manager.js`)
 

@@ -7,7 +7,9 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "test:connection": "node test_connection.js",
+    "fix:encoding": "node scripts/fix_encoding.js"
   },
   "keywords": [],
   "author": "",

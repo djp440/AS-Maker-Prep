@@ -17,7 +17,31 @@ const streams = [
 
 // 在开发环境中，添加美化的控制台输出
 if (process.env.NODE_ENV !== 'production') {
-  streams.push({ stream: require('pino-pretty')() });
+  // 设置控制台编码为UTF-8（Windows兼容）
+  if (process.platform === 'win32') {
+    try {
+      process.stdout.setEncoding('utf8');
+      process.stderr.setEncoding('utf8');
+    } catch (e) {
+      // 忽略编码设置错误
+    }
+  }
+  
+  streams.push({ 
+    stream: require('pino-pretty')({
+      colorize: true,
+      translateTime: 'HH:MM:ss.l',
+      ignore: 'pid,hostname',
+      // 确保中文字符正确显示
+      messageFormat: '{msg}',
+      customPrettifiers: {
+        time: (timestamp) => `[${timestamp}]`
+      },
+      // 添加UTF-8支持
+      destination: process.stdout,
+      sync: true
+    }) 
+  });
 }
 
 const logger = pino(
