@@ -11,7 +11,12 @@
     "test:connection": "node test_connection.js",
     "test:websocket": "node test_websocket_simple.js",
     "test:websocket:full": "node test_websocket_fixed.js",
-    "fix:encoding": "node scripts/fix_encoding.js"
+    "fix:encoding": "node scripts/fix_encoding.js",
+    "test:comprehensive": "node run_tests.js",
+    "test:core": "node run_tests.js core",
+    "test:rest": "node run_tests.js rest",
+    "test:websocket:data": "node run_tests.js websocket",
+    "test:all": "node run_tests.js all"
   },
   "keywords": [],
   "author": "",

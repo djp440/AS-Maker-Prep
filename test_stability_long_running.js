@@ -1,0 +1,459 @@
+/**
+ * 长时间运行稳定性测试脚本
+ * 功能：
+ * 1. 通过WebSocket持续获取config.json中配置的交易对价格和持仓数据
+ * 2. 间歇性进行REST API请求验证连接稳定性
+ * 3. 监控系统运行状态和性能指标
+ * 4. 记录详细的运行日志和统计信息
+ */
+
+const Config = require('./src/shared/config');
+const Logger = require('./src/shared/logger');
+const ExchangeService = require('./src/services/exchange_service');
+const WebSocketManager = require('./src/services/websocket_manager');
+const dayjs = require('dayjs');
+
+class StabilityTester {
+    constructor() {
+        this.startTime = Date.now();
+        this.isRunning = false;
+        this.symbols = [];
+        
+        // 数据统计
+        this.stats = {
+            websocket: {
+                ticker: { count: 0, lastReceived: null, errors: 0 },
+                orderbook: { count: 0, lastReceived: null, errors: 0 },
+                balance: { count: 0, lastReceived: null, errors: 0 },
+                positions: { count: 0, lastReceived: null, errors: 0 },
+                reconnects: 0,
+                totalErrors: 0
+            },
+            restApi: {
+                requests: 0,
+                successes: 0,
+                failures: 0,
+                avgResponseTime: 0,
+                lastRequest: null,
+                errors: []
+            },
+            system: {
+                memoryUsage: [],
+                uptime: 0,
+                healthChecks: 0
+            }
+        };
+        
+        // 配置参数
+        this.config = {
+            restApiInterval: 30000,      // REST API请求间隔（30秒）
+            healthCheckInterval: 60000,  // 健康检查间隔（1分钟）
+            statsReportInterval: 300000, // 统计报告间隔（5分钟）
+            maxRestApiErrors: 10,        // 最大REST API错误数
+            maxWebSocketErrors: 20       // 最大WebSocket错误数
+        };
+        
+        this.timers = {
+            restApi: null,
+            healthCheck: null,
+            statsReport: null
+        };
+    }
+    
+    /**
+     * 初始化测试环境
+     */
+    async initialize() {
+        try {
+            Logger.info('=== 长时间运行稳定性测试初始化 ===');
+            
+            // 加载配置
+            await Config.load();
+            this.symbols = Config.getSymbols().map(s => s.SYMBOL);
+            Logger.info(`测试交易对: ${this.symbols.join(', ')}`);
+            
+            // 初始化交易所服务
+            await ExchangeService.initialize();
+            Logger.info('✅ 交易所服务初始化成功');
+            
+            // 初始化WebSocket
+            await WebSocketManager.initialize();
+            Logger.info('✅ WebSocket服务初始化成功');
+            
+            // 设置事件监听
+            this.setupEventListeners();
+            
+            Logger.info('🚀 稳定性测试初始化完成');
+            
+        } catch (error) {
+            Logger.error('初始化失败:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 设置WebSocket事件监听
+     */
+    setupEventListeners() {
+        // Ticker数据监听
+        WebSocketManager.on('ticker', (data) => {
+            this.stats.websocket.ticker.count++;
+            this.stats.websocket.ticker.lastReceived = Date.now();
+            
+            if (this.stats.websocket.ticker.count % 100 === 0) {
+                const price = data.data?.last || data.data?.close || '未知';
+                Logger.info(`[Ticker-${this.stats.websocket.ticker.count}] ${data.symbol}: ${price}`);
+            }
+        });
+        
+        // 订单簿数据监听
+        WebSocketManager.on('orderbook', (data) => {
+            this.stats.websocket.orderbook.count++;
+            this.stats.websocket.orderbook.lastReceived = Date.now();
+            
+            if (this.stats.websocket.orderbook.count % 50 === 0) {
+                const bid = data.data?.bids?.[0]?.[0] || '未知';
+                const ask = data.data?.asks?.[0]?.[0] || '未知';
+                Logger.info(`[OrderBook-${this.stats.websocket.orderbook.count}] ${data.symbol}: 买一=${bid}, 卖一=${ask}`);
+            }
+        });
+        
+        // 余额数据监听
+        WebSocketManager.on('balance', (data) => {
+            this.stats.websocket.balance.count++;
+            this.stats.websocket.balance.lastReceived = Date.now();
+            Logger.info(`[Balance-${this.stats.websocket.balance.count}] 余额更新`);
+        });
+        
+        // 持仓数据监听
+        WebSocketManager.on('positions', (data) => {
+            this.stats.websocket.positions.count++;
+            this.stats.websocket.positions.lastReceived = Date.now();
+            Logger.info(`[Positions-${this.stats.websocket.positions.count}] 持仓更新`);
+        });
+        
+        // WebSocket错误监听
+        WebSocketManager.on('error', (error) => {
+            this.stats.websocket.totalErrors++;
+            Logger.error(`WebSocket错误 [${this.stats.websocket.totalErrors}]:`, error.message);
+            
+            // 检查是否超过错误阈值
+            if (this.stats.websocket.totalErrors >= this.config.maxWebSocketErrors) {
+                Logger.error('WebSocket错误次数超过阈值，停止测试');
+                this.stop();
+            }
+        });
+        
+        // WebSocket重连监听
+        WebSocketManager.on('reconnect', () => {
+            this.stats.websocket.reconnects++;
+            Logger.warn(`WebSocket重连 [第${this.stats.websocket.reconnects}次]`);
+        });
+    }
+    
+    /**
+     * 开始稳定性测试
+     */
+    async start() {
+        try {
+            this.isRunning = true;
+            Logger.info('\n🎯 开始长时间运行稳定性测试');
+            Logger.info(`测试配置: REST API间隔=${this.config.restApiInterval/1000}s, 健康检查间隔=${this.config.healthCheckInterval/1000}s`);
+            
+            // 订阅WebSocket数据流
+            await this.subscribeWebSocketData();
+            
+            // 启动定时任务
+            this.startTimers();
+            
+            // 初始REST API测试
+            await this.performRestApiTest();
+            
+            Logger.info('✅ 稳定性测试已启动，按 Ctrl+C 停止测试');
+            
+        } catch (error) {
+            Logger.error('启动测试失败:', error);
+            this.stop();
+        }
+    }
+    
+    /**
+     * 订阅WebSocket数据流
+     */
+    async subscribeWebSocketData() {
+        Logger.info('\n📡 开始订阅WebSocket数据流...');
+        
+        // 订阅所有交易对的Ticker数据
+        for (const symbol of this.symbols) {
+            try {
+                await WebSocketManager.watchTicker(symbol);
+                Logger.info(`✅ 已订阅 ${symbol} Ticker数据`);
+                
+                // 尝试订阅订单簿数据（可能不稳定）
+                try {
+                    await WebSocketManager.watchOrderBook(symbol);
+                    Logger.info(`✅ 已订阅 ${symbol} OrderBook数据`);
+                } catch (error) {
+                    Logger.warn(`⚠️ ${symbol} OrderBook订阅失败:`, error.message);
+                }
+            } catch (error) {
+                Logger.error(`❌ ${symbol} 数据订阅失败:`, error);
+            }
+        }
+        
+        // 订阅私有数据
+        try {
+            await WebSocketManager.watchBalance();
+            Logger.info('✅ 已订阅账户余额数据');
+        } catch (error) {
+            Logger.warn('⚠️ 余额数据订阅失败:', error.message);
+        }
+        
+        try {
+            await WebSocketManager.watchPositions();
+            Logger.info('✅ 已订阅持仓数据');
+        } catch (error) {
+            Logger.warn('⚠️ 持仓数据订阅失败:', error.message);
+        }
+    }
+    
+    /**
+     * 启动定时任务
+     */
+    startTimers() {
+        // REST API定时测试
+        this.timers.restApi = setInterval(() => {
+            this.performRestApiTest();
+        }, this.config.restApiInterval);
+        
+        // 健康检查
+        this.timers.healthCheck = setInterval(() => {
+            this.performHealthCheck();
+        }, this.config.healthCheckInterval);
+        
+        // 统计报告
+        this.timers.statsReport = setInterval(() => {
+            this.generateStatsReport();
+        }, this.config.statsReportInterval);
+    }
+    
+    /**
+     * 执行REST API测试
+     */
+    async performRestApiTest() {
+        const startTime = Date.now();
+        this.stats.restApi.requests++;
+        this.stats.restApi.lastRequest = startTime;
+        
+        try {
+            Logger.info(`\n🔄 执行REST API测试 [第${this.stats.restApi.requests}次]`);
+            
+            // 测试余额查询
+            const balance = await ExchangeService.fetchBalance();
+            const usdtBalance = balance.USDT || { total: 0 };
+            Logger.info(`💰 账户余额: USDT=${usdtBalance.total}`);
+            
+            // 测试持仓查询
+            const positions = await ExchangeService.fetchPositions();
+            Logger.info(`📊 当前持仓: ${positions.length} 个`);
+            
+            // 测试市场数据
+            const testSymbol = this.symbols[0];
+            const ticker = await ExchangeService.fetchTicker(testSymbol);
+            Logger.info(`📈 ${testSymbol} 价格: ${ticker.last}`);
+            
+            // 计算响应时间
+            const responseTime = Date.now() - startTime;
+            this.stats.restApi.avgResponseTime = 
+                (this.stats.restApi.avgResponseTime * (this.stats.restApi.successes) + responseTime) / 
+                (this.stats.restApi.successes + 1);
+            
+            this.stats.restApi.successes++;
+            Logger.info(`✅ REST API测试成功 (响应时间: ${responseTime}ms)`);
+            
+        } catch (error) {
+            this.stats.restApi.failures++;
+            this.stats.restApi.errors.push({
+                time: Date.now(),
+                error: error.message
+            });
+            
+            Logger.error(`❌ REST API测试失败 [第${this.stats.restApi.failures}次]:`, error.message);
+            
+            // 检查是否超过错误阈值
+            if (this.stats.restApi.failures >= this.config.maxRestApiErrors) {
+                Logger.error('REST API错误次数超过阈值，停止测试');
+                this.stop();
+            }
+        }
+    }
+    
+    /**
+     * 执行健康检查
+     */
+    performHealthCheck() {
+        this.stats.system.healthChecks++;
+        const now = Date.now();
+        const uptime = now - this.startTime;
+        this.stats.system.uptime = uptime;
+        
+        // 内存使用情况
+        const memUsage = process.memoryUsage();
+        this.stats.system.memoryUsage.push({
+            time: now,
+            rss: memUsage.rss,
+            heapUsed: memUsage.heapUsed,
+            heapTotal: memUsage.heapTotal
+        });
+        
+        // 保留最近100次内存记录
+        if (this.stats.system.memoryUsage.length > 100) {
+            this.stats.system.memoryUsage = this.stats.system.memoryUsage.slice(-100);
+        }
+        
+        Logger.info(`\n💓 健康检查 [第${this.stats.system.healthChecks}次]`);
+        Logger.info(`⏱️ 运行时间: ${this.formatDuration(uptime)}`);
+        Logger.info(`🧠 内存使用: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`);
+        Logger.info(`🔗 WebSocket状态: ${WebSocketManager.getConnectionState()}`);
+        
+        // 检查数据接收情况
+        const tickerDelay = now - (this.stats.websocket.ticker.lastReceived || now);
+        if (tickerDelay > 60000) { // 超过1分钟没有收到数据
+            Logger.warn(`⚠️ Ticker数据超过1分钟未更新`);
+        }
+    }
+    
+    /**
+     * 生成统计报告
+     */
+    generateStatsReport() {
+        const uptime = Date.now() - this.startTime;
+        
+        Logger.info('\n📊 ===== 稳定性测试统计报告 =====');
+        Logger.info(`🕐 测试运行时间: ${this.formatDuration(uptime)}`);
+        Logger.info(`📡 WebSocket数据统计:`);
+        Logger.info(`  - Ticker: ${this.stats.websocket.ticker.count} 条`);
+        Logger.info(`  - OrderBook: ${this.stats.websocket.orderbook.count} 条`);
+        Logger.info(`  - Balance: ${this.stats.websocket.balance.count} 条`);
+        Logger.info(`  - Positions: ${this.stats.websocket.positions.count} 条`);
+        Logger.info(`  - 重连次数: ${this.stats.websocket.reconnects}`);
+        Logger.info(`  - 错误次数: ${this.stats.websocket.totalErrors}`);
+        
+        Logger.info(`🌐 REST API统计:`);
+        Logger.info(`  - 总请求: ${this.stats.restApi.requests}`);
+        Logger.info(`  - 成功: ${this.stats.restApi.successes}`);
+        Logger.info(`  - 失败: ${this.stats.restApi.failures}`);
+        Logger.info(`  - 成功率: ${this.stats.restApi.requests > 0 ? ((this.stats.restApi.successes / this.stats.restApi.requests) * 100).toFixed(2) : 0}%`);
+        Logger.info(`  - 平均响应时间: ${Math.round(this.stats.restApi.avgResponseTime)}ms`);
+        
+        Logger.info(`💾 系统统计:`);
+        Logger.info(`  - 健康检查: ${this.stats.system.healthChecks} 次`);
+        
+        const latestMem = this.stats.system.memoryUsage[this.stats.system.memoryUsage.length - 1];
+        if (latestMem) {
+            Logger.info(`  - 当前内存: ${Math.round(latestMem.heapUsed / 1024 / 1024)}MB`);
+        }
+        
+        Logger.info('=====================================\n');
+    }
+    
+    /**
+     * 格式化持续时间
+     */
+    formatDuration(ms) {
+        const seconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        
+        if (days > 0) {
+            return `${days}天 ${hours % 24}小时 ${minutes % 60}分钟`;
+        } else if (hours > 0) {
+            return `${hours}小时 ${minutes % 60}分钟 ${seconds % 60}秒`;
+        } else if (minutes > 0) {
+            return `${minutes}分钟 ${seconds % 60}秒`;
+        } else {
+            return `${seconds}秒`;
+        }
+    }
+    
+    /**
+     * 停止测试
+     */
+    async stop() {
+        if (!this.isRunning) return;
+        
+        this.isRunning = false;
+        Logger.info('\n🛑 正在停止稳定性测试...');
+        
+        // 清除定时器
+        Object.values(this.timers).forEach(timer => {
+            if (timer) clearInterval(timer);
+        });
+        
+        // 生成最终报告
+        this.generateStatsReport();
+        
+        // 关闭WebSocket连接
+        try {
+            await WebSocketManager.close();
+            Logger.info('✅ WebSocket连接已关闭');
+        } catch (error) {
+            Logger.warn('关闭WebSocket时出错:', error.message);
+        }
+        
+        const totalUptime = Date.now() - this.startTime;
+        Logger.info(`\n🏁 稳定性测试结束`);
+        Logger.info(`📊 总运行时间: ${this.formatDuration(totalUptime)}`);
+        Logger.info(`📈 测试结果: WebSocket数据=${this.stats.websocket.ticker.count + this.stats.websocket.orderbook.count}条, REST API成功率=${this.stats.restApi.requests > 0 ? ((this.stats.restApi.successes / this.stats.restApi.requests) * 100).toFixed(2) : 0}%`);
+    }
+}
+
+// 创建测试实例
+const tester = new StabilityTester();
+
+// 错误处理
+process.on('uncaughtException', (error) => {
+    Logger.error('未捕获的异常:', error);
+    tester.stop().then(() => process.exit(1));
+});
+
+process.on('unhandledRejection', (reason) => {
+    Logger.error('未处理的Promise拒绝:', reason);
+    tester.stop().then(() => process.exit(1));
+});
+
+// 优雅退出
+process.on('SIGINT', () => {
+    Logger.info('\n收到中断信号，正在优雅退出...');
+    tester.stop().then(() => {
+        Logger.info('👋 测试已安全退出');
+        process.exit(0);
+    });
+});
+
+process.on('SIGTERM', () => {
+    Logger.info('\n收到终止信号，正在优雅退出...');
+    tester.stop().then(() => {
+        Logger.info('👋 测试已安全退出');
+        process.exit(0);
+    });
+});
+
+// 主函数
+async function main() {
+    try {
+        await tester.initialize();
+        await tester.start();
+    } catch (error) {
+        Logger.error('测试启动失败:', error);
+        process.exit(1);
+    }
+}
+
+// 启动测试
+if (require.main === module) {
+    main();
+}
+
+module.exports = StabilityTester;

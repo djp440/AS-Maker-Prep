@@ -17,6 +17,23 @@
       "REBALANCE_TIME_INTERVAL": 10,
       "PRICE_MOVE_THRESHOLD_PCT": 0.05,
       "USE_TRADITIONAL_GLFT": false
+    },
+    {
+      "SYMBOL": "ETH/USDT:USDT",
+      "RISK_AVERSION": 1,
+      "ORDER_FLOW_A": 140,
+      "ORDER_FLOW_K": 1.5,
+      "MAX_INVENTORY_Q": 0.2,
+      "ORDER_AMOUNT": 0.01,
+      "VOLATILITY_LOOKBACK": 14,
+      "KLINE_INTERVAL": "15m",
+      "LEVERAGE": 2,
+      "TRADE_SIDE": "both",
+      "MIN_SPREAD_PCT": 0.06,
+      "HALF_SPREAD_PCT": 0.04,
+      "REBALANCE_TIME_INTERVAL": 10,
+      "PRICE_MOVE_THRESHOLD_PCT": 0.05,
+      "USE_TRADITIONAL_GLFT": false
     }
   ]
 }
