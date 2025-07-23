@@ -74,13 +74,18 @@
 
 ### 5. Services - WebSocket Manager (`src/services/websocket_manager.js`)
 
-- [ ] 创建 `WebSocketManager` 类，管理 WebSocket 连接。
-- [ ] 实现基于 `ccxt` 的 `watch` 系列方法。
-- [ ] 实现根据配置切换实盘/模拟盘 WebSocket URL。
-- [ ] 实现健壮的自动重连机制（指数退避）。
-- [ ] 实现订阅管理，重连后自动重新订阅频道。
-- [ ] 使用 `EventEmitter` 将收到的数据分发出去 (`orderbook`, `orders`, `positions` 等)。
-- [ ] 在重连成功后，触发事件通知 `AccountService` 进行状态校准。
+- [x] 创建 `WebSocketManager` 类，管理 WebSocket 连接。
+- [x] 实现基于 `ccxt` 的 `watch` 系列方法。
+- [x] 实现根据配置切换实盘/模拟盘 WebSocket URL。
+- [x] 实现健壮的自动重连机制（指数退避）。
+- [x] 实现订阅管理，重连后自动重新订阅频道。
+- [x] 使用 `EventEmitter` 将收到的数据分发出去 (`orderbook`, `orders`, `positions` 等)。
+- [x] 在重连成功后，触发事件通知 `AccountService` 进行状态校准。
+- [x] **修复WebSocket连接问题** - 已解决无法获取数据的问题：
+  - 修改导入语句使用 `require('ccxt').pro` 而不是普通的 `ccxt`
+  - 简化Bitget配置，移除不必要的URL配置
+  - 设置 `sandbox: false`（Bitget没有沙盒环境）
+  - 测试验证：能够正常接收实时订单簿和价格数据
 
 ### 6. Services - Market Data Service (`src/services/market_data_service.js`)
 
