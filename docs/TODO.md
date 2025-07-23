@@ -104,13 +104,16 @@
 
 ## 第三阶段：核心策略与执行 (Core Logic)
 
-### 8. Core - Strategy (`src/core/strategy.js`)
+### 8. Core - Strategy (`src/core/strategy.js`) - GLFT模型
 
 - [ ] 创建一个无状态的 `Strategy` 模块（类或纯函数集合）。
-- [ ] 实现 `calculateReservationPrice(s, q, gamma, sigma)` 函数。
-- [ ] 实现 `calculateOptimalSpread(baseSpread, ...)` 函数。
-- [ ] 实现主入口函数 `calculateQuotes(inputs)`，返回 `{ bidPrice, askPrice }`。
-- [ ] 为 `Strategy` 模块编写单元测试，覆盖关键场景（零库存、多/空头库存、高波动率）。
+- [ ] 实现 `calculateConstants(gamma, orderFlowA, orderFlowK)` 函数，计算C1和C2常数。
+- [ ] 实现 `calculateHalfSpread(C1, C2, volatility)` 函数。
+- [ ] 实现 `calculateSkew(C2, volatility)` 函数。
+- [ ] 实现 `calculateQuoteDepths(halfSpread, skew, normalizedInventory)` 函数。
+- [ ] 实现主入口函数 `calculateGLFTQuotes(inputs)`，返回 `{ bidPrice, askPrice, halfSpread, skew }`。
+- [ ] 实现库存限制检查 `checkInventoryLimits(normalizedInventory, maxInventoryQ)`。
+- [ ] 为 `Strategy` 模块编写单元测试，覆盖关键场景（零库存、多/空头库存、库存限制触发）。
 
 ### 9. Core - Trader (`src/core/trader.js`)
 
@@ -147,9 +150,11 @@
 
 ---
 
-## 5. 测试与文档
+## 5. 测试与文档 (GLFT模型)
 
-- [ ] 完善所有核心模块的单元测试。
-- [ ] 进行集成测试，在模拟盘环境中验证完整的做市流程。
-- [ ] 编写或更新 `README.md`，包含安装、配置和启动说明。
-- [ ] 确保所有代码都有清晰的 JSDoc 注释。
+- [ ] 完善所有核心模块的单元测试，特别是GLFT策略模块的测试。
+- [ ] 进行集成测试，在模拟盘环境中验证完整的GLFT做市流程。
+- [ ] 测试库存限制机制的有效性和稳定性。
+- [ ] 验证GLFT模型在不同市场条件下的表现。
+- [ ] 编写或更新 `README.md`，包含GLFT模型的安装、配置和启动说明。
+- [ ] 确保所有代码都有清晰的 JSDoc 注释，特别是GLFT算法相关的注释。

@@ -1,9 +1,10 @@
-# 模块开发指南: Monitoring (Health Checker, Alert Manager, Metrics Collector)
+# 模块开发指南: Monitoring (Health Checker, Alert Manager, Metrics Collector) - GLFT模型
 
 ## 1. 核心职责
 - **Health Checker**: 监控应用程序的关键组件（如 WebSocket 连接、API 可用性）是否正常运行。
 - **Alert Manager**: 在检测到严重问题时，通过预设的渠道（如日志、未来可扩展的钉钉/Telegram）发送告警。
 - **Metrics Collector**: 收集和记录关键的性能和交易指标，用于分析和报告。
+- **GLFT特有监控**: 监控库存限制触发情况、半价差和偏度计算的有效性。
 
 *在项目初期，这三个模块的功能可以被简化并整合到一个或两个文件中，主要通过日志系统来实现。*
 
@@ -32,7 +33,9 @@
   - 程序启动验证失败。
   - 出现未捕获的严重异常导致进程退出。
 - **风险阈值**: 
-  - 库存水平超过强制减仓阈值（如 `MAX_INVENTORY` 的 120%）。
+  - 库存水平超过强制减仓阈值（如 `MAX_INVENTORY_Q` 的 120%）。
+  - GLFT硬性库存限制频繁触发（如连续10次循环都触发限制）。
+  - 半价差计算异常（如返回负值或极大值）。
   - 市场波动率或价差异常，触发了交易暂停。
 
 ### 3.2. 告警方式
@@ -51,6 +54,11 @@
   - `api_call_count`: API 调用次数。
   - `api_error_rate`: API 调用错误率。
   - `order_fill_rate`: 订单成交率。
+- **GLFT特有指标**: 
+  - `inventory_limit_triggers`: 库存限制触发次数。
+  - `avg_half_spread`: 平均半价差。
+  - `avg_skew`: 平均库存偏度。
+  - `inventory_utilization`: 库存利用率 (|q|/Q)。
 
 ### 4.2. 实现方式
 - **事件驱动**: 在关键事件发生时收集指标。

@@ -2,6 +2,8 @@
 @docs/开发文档.md 项目的总体开发文档
 @docs/modules/ 该文件夹包含项目各个模块的开发文档
 @docs/TODO.md 项目的TODO列表
+@docs/GLFT做市模型研报与应用.md GLFT做市模型研报
+@config.js 程序的参数
 
 # 编码流程
 1. 浏览项目，了解项目内容和结构

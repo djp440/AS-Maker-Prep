@@ -4,9 +4,10 @@
     {
       "SYMBOL": "BTC/USDT:USDT",
       "RISK_AVERSION": 1,
-      "BASE_SPREAD": 0.001,
+      "ORDER_FLOW_A": 140,
+      "ORDER_FLOW_K": 1.5,
+      "MAX_INVENTORY_Q": 0.2,
       "ORDER_AMOUNT": 0.01,
-      "MAX_INVENTORY": 0.2,
       "VOLATILITY_LOOKBACK": 14,
       "KLINE_INTERVAL": "15m",
       "LEVERAGE": 2,
