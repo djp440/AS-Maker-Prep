@@ -87,23 +87,23 @@
   - 设置 `sandbox: false`（Bitget没有沙盒环境）
   - 测试验证：能够正常接收实时订单簿和价格数据
 
-### 6. Services - Market Data Service (`src/services/market_data_service.js`)
+### 6. Services - Market Data Service (`src/services/market_data_service.js`) ✅
+如果还要对WebSocketManager进行再次编码，必须遵循@docs/ccxt_pro_websocket_guide.md文档的指导。
+- [x] 创建 `MarketDataService` 类。
+- [x] 监听 `WebSocketManager` 的行情事件 (`ticker`, `orderbook`)。
+- [x] 实现 `getMidPrice(symbol)`，实时计算并缓存市场中间价。
+- [x] 实现 `getVolatility(symbol)`，通过 `ExchangeService` 定期获取K线并计算波动率。
+- [x] 在启动时，主动获取一次历史K线来初始化波动率。
+- [x] 实现数据验证逻辑（价差、波动率异常检测）。
 
-- [ ] 创建 `MarketDataService` 类。
-- [ ] 监听 `WebSocketManager` 的行情事件 (`ticker`, `orderbook`)。
-- [ ] 实现 `getMidPrice(symbol)`，实时计算并缓存市场中间价。
-- [ ] 实现 `getVolatility(symbol)`，通过 `ExchangeService` 定期获取K线并计算波动率。
-- [ ] 在启动时，主动获取一次历史K线来初始化波动率。
-- [ ] 实现数据验证逻辑（价差、波动率异常检测）。
-
-### 7. Services - Account Service (`src/services/account_service.js`)
-
-- [ ] 创建 `AccountService` 类。
-- [ ] 监听 `WebSocketManager` 的私有数据事件 (`orders`, `balance`, `positions`)。
-- [ ] 实现启动/重连时通过 REST API 进行全量数据同步。
-- [ ] 在内存中维护账户状态（总资产、持仓、活动订单）。
-- [ ] 实现 `getTotalEquity()`, `getPosition(symbol)`, `getOpenOrders(symbol)` 等接口。
-- [ ] 实现核心计算方法 `getNormalizedInventory(symbol)`。
+### 7. Services - Account Service (`src/services/account_service.js`) ✅
+如果还要对WebSocketManager进行再次编码，必须遵循@docs/ccxt_pro_websocket_guide.md文档的指导。
+- [x] 创建 `AccountService` 类。
+- [x] 监听 `WebSocketManager` 的私有数据事件 (`orders`, `balance`, `positions`)。
+- [x] 实现启动/重连时通过 REST API 进行全量数据同步。
+- [x] 在内存中维护账户状态（总资产、持仓、活动订单）。
+- [x] 实现 `getTotalEquity()`, `getPosition(symbol)`, `getOpenOrders(symbol)` 等接口。
+- [x] 实现核心计算方法 `getNormalizedInventory(symbol)`。
 
 ---
 
@@ -221,7 +221,15 @@
   - [ ] 测试网络异常恢复机制
   - [ ] 模拟市场数据，测试完整的中低频交易循环
 
-#### 12.3 系统集成测试
+#### 12.3 AccountService测试 ✅
+- [x] 为 `AccountService` 编写单元测试：
+  - [x] 测试初始化和依赖检查
+  - [x] 测试余额管理和总资产计算
+  - [x] 测试持仓管理和标准化库存计算
+  - [x] 测试订单管理和筛选功能
+  - [x] 测试全量数据同步功能
+
+#### 12.4 系统集成测试
 - [ ] 编写端到端测试，验证整个中低频系统的协调工作
 - [ ] 测试多交易对并行运行的稳定性
 - [ ] 测试长时间运行的性能和内存使用

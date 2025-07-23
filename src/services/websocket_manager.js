@@ -76,6 +76,22 @@ class WebSocketManager extends EventEmitter {
     constructor() {
         super();
         // 私有构造函数，防止外部实例化
+        
+        // 连接健康检查定时器
+        this.healthCheckTimer = null;
+        this.healthCheckInterval = 30000; // 30秒检查一次
+        this.lastDataReceived = Date.now();
+        this.maxSilentTime = 60000; // 60秒无数据则认为连接异常
+        
+        // 连接质量监控
+        this.connectionQuality = {
+            latency: 0,
+            dataReceiveRate: 0,
+            errorCount: 0,
+            lastErrorTime: 0
+        };
+        this.qualityCheckInterval = 10000; // 10秒检查一次连接质量
+        this.qualityCheckTimer = null;
     }
 
     /**
@@ -121,6 +137,28 @@ class WebSocketManager extends EventEmitter {
                 options.options = {
                     defaultType: 'swap'
                 };
+                
+                // 根据模拟盘/实盘模式设置WebSocket URL
+                if (isPaperTrading) {
+                    // 模拟盘WebSocket配置
+                    options.urls = {
+                        api: {
+                            ws: {
+                                public: 'wss://wspap.bitget.com/v2/ws/public',
+                                private: 'wss://wspap.bitget.com/v2/ws/private'
+                            }
+                        }
+                    };
+                    Logger.info('使用模拟盘WebSocket端点');
+                } else {
+                    // 实盘WebSocket配置（使用默认URL）
+                    Logger.info('使用实盘WebSocket端点');
+                }
+                
+                // 添加连接超时和重连配置
+                options.options.watchOrderBookLimit = 1000; // 订单簿深度限制
+                options.options.tradesLimit = 1000; // 交易记录限制
+                options.timeout = 30000; // 30秒超时
             }
 
             this.exchange = new ExchangeClass(options);
@@ -130,6 +168,12 @@ class WebSocketManager extends EventEmitter {
             
             this.connectionState = 'open';
             this.reconnectAttempts = 0;
+            this.isReconnecting = false;
+            this.lastDataReceived = Date.now();
+            
+            // 启动连接健康检查和质量监控
+            this.startHealthCheck();
+            this.startQualityMonitoring();
             
             Logger.info('WebSocket连接初始化成功');
             this.emit('connected');
@@ -167,6 +211,7 @@ class WebSocketManager extends EventEmitter {
                 try {
                     while (this.connectionState === 'open') {
                         const ticker = await this.exchange.watchTicker(symbol);
+                        this.lastDataReceived = Date.now(); // 更新数据接收时间
                         this.emit('ticker', { symbol, data: ticker });
                     }
                 } catch (error) {
@@ -217,6 +262,7 @@ class WebSocketManager extends EventEmitter {
                 try {
                     while (this.connectionState === 'open') {
                         const orderbook = await this.exchange.watchOrderBook(symbol);
+                        this.lastDataReceived = Date.now(); // 更新数据接收时间
                         this.emit('orderbook', { symbol, data: orderbook });
                     }
                 } catch (error) {
@@ -267,6 +313,7 @@ class WebSocketManager extends EventEmitter {
                 try {
                     while (this.connectionState === 'open') {
                         const orders = await this.exchange.watchOrders(symbol);
+                        this.lastDataReceived = Date.now(); // 更新数据接收时间
                         this.emit('orders', { symbol, data: orders });
                     }
                 } catch (error) {
@@ -316,6 +363,7 @@ class WebSocketManager extends EventEmitter {
                 try {
                     while (this.connectionState === 'open') {
                         const balance = await this.exchange.watchBalance();
+                        this.lastDataReceived = Date.now(); // 更新数据接收时间
                         this.emit('balance', { data: balance });
                     }
                 } catch (error) {
@@ -366,6 +414,7 @@ class WebSocketManager extends EventEmitter {
                 try {
                     while (this.connectionState === 'open') {
                         const positions = await this.exchange.watchPositions(symbol ? [symbol] : undefined);
+                        this.lastDataReceived = Date.now(); // 更新数据接收时间
                         this.emit('positions', { symbol, data: positions });
                     }
                 } catch (error) {
@@ -400,11 +449,46 @@ class WebSocketManager extends EventEmitter {
             return; // 已在重连中，避免重复触发
         }
 
-        Logger.warn('WebSocket连接错误，准备重连:', error.message);
-        this.connectionState = 'closed';
-        this.emit('disconnected', error);
+        // 更新连接质量统计
+        this.connectionQuality.errorCount++;
+        this.connectionQuality.lastErrorTime = Date.now();
         
-        this.scheduleReconnect();
+        // 根据CCXT错误类型进行分类处理
+        const isRetryableError = this.isRetryableError(error);
+        
+        if (isRetryableError) {
+            Logger.warn('WebSocket连接错误（可重试）:', error.message);
+            this.connectionState = 'closed';
+            this.emit('disconnected', error);
+            this.scheduleReconnect();
+        } else {
+            Logger.error('WebSocket连接错误（不可重试）:', error.message);
+            this.connectionState = 'closed';
+            this.emit('error', error);
+            // 对于不可重试的错误，不自动重连
+        }
+    }
+
+    /**
+     * @description 判断错误是否可重试
+     * @private
+     * @param {Error} error - 错误对象
+     * @returns {boolean} 是否可重试
+     */
+    isRetryableError(error) {
+        // 网络错误、超时错误、交易所临时繁忙等可重试
+        return (
+            error instanceof ccxt.NetworkError ||
+            error instanceof ccxt.RequestTimeout ||
+            error instanceof ccxt.ExchangeNotAvailable ||
+            error instanceof ccxt.RateLimitExceeded || // 速率限制错误
+            error instanceof ccxt.DDoSProtection ||    // DDoS保护错误
+            (error instanceof ccxt.ExchangeError && 
+             (error.message.includes('busy') || 
+              error.message.includes('timeout') ||
+              error.message.includes('connection') ||
+              error.message.includes('network')))
+        );
     }
 
     /**
@@ -458,6 +542,11 @@ class WebSocketManager extends EventEmitter {
 
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
+            this.lastDataReceived = Date.now();
+            
+            // 重新启动健康检查和质量监控
+            this.startHealthCheck();
+            this.startQualityMonitoring();
             
             Logger.info('WebSocket重连成功');
             this.emit('reconnected');
@@ -533,6 +622,10 @@ class WebSocketManager extends EventEmitter {
             this.reconnectTimer = null;
         }
 
+        // 停止健康检查和质量监控
+        this.stopHealthCheck();
+        this.stopQualityMonitoring();
+        
         // 停止所有watch处理器
         for (const handler of this.watchHandlers.values()) {
             // 由于handler是异步函数，我们通过改变connectionState来停止它们
@@ -599,6 +692,94 @@ class WebSocketManager extends EventEmitter {
         
         Logger.info('WebSocket连接已关闭');
     }
+
+    /**
+     * @description 启动连接健康检查
+     * @private
+     */
+    startHealthCheck() {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+        }
+        
+        this.healthCheckTimer = setInterval(() => {
+            const now = Date.now();
+            const timeSinceLastData = now - this.lastDataReceived;
+            
+            if (timeSinceLastData > this.maxSilentTime && this.connectionState === 'open') {
+                Logger.warn(`连接健康检查失败: ${timeSinceLastData}ms 无数据接收`);
+                this.handleConnectionError(new Error('Connection health check failed: no data received'));
+            }
+        }, this.healthCheckInterval);
+    }
+
+    /**
+      * @description 停止连接健康检查
+      * @private
+      */
+     stopHealthCheck() {
+         if (this.healthCheckTimer) {
+             clearInterval(this.healthCheckTimer);
+             this.healthCheckTimer = null;
+         }
+     }
+
+     /**
+      * @description 启动连接质量监控
+      * @private
+      */
+     startQualityMonitoring() {
+         if (this.qualityCheckTimer) {
+             clearInterval(this.qualityCheckTimer);
+         }
+         
+         this.qualityCheckTimer = setInterval(() => {
+             this.updateConnectionQuality();
+         }, this.qualityCheckInterval);
+     }
+
+     /**
+      * @description 停止连接质量监控
+      * @private
+      */
+     stopQualityMonitoring() {
+         if (this.qualityCheckTimer) {
+             clearInterval(this.qualityCheckTimer);
+             this.qualityCheckTimer = null;
+         }
+     }
+
+     /**
+      * @description 更新连接质量指标
+      * @private
+      */
+     updateConnectionQuality() {
+         const now = Date.now();
+         
+         // 计算数据接收率（每秒接收数据次数的估算）
+         const timeSinceLastData = now - this.lastDataReceived;
+         this.connectionQuality.dataReceiveRate = timeSinceLastData < 5000 ? 1 : 0;
+         
+         // 计算延迟（基于数据接收间隔的估算）
+         this.connectionQuality.latency = Math.min(timeSinceLastData, 5000);
+         
+         // 如果连接质量较差，记录警告
+         if (this.connectionQuality.errorCount > 5 && 
+             (now - this.connectionQuality.lastErrorTime) < 60000) {
+             Logger.warn('连接质量较差，错误频率过高');
+         }
+         
+         // 发出连接质量事件
+         this.emit('connectionQuality', this.connectionQuality);
+     }
+
+     /**
+      * @description 获取连接质量信息
+      * @returns {Object} 连接质量指标
+      */
+     getConnectionQuality() {
+         return { ...this.connectionQuality };
+     }
 
     /**
      * @description 获取交易所实例

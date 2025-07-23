@@ -1,0 +1,20 @@
+{
+  "timestamp": "2025-07-23T08:41:54.918Z",
+  "totalDuration": 1387,
+  "summary": {
+    "total": 1,
+    "success": 1,
+    "failure": 0,
+    "successRate": "100.00%"
+  },
+  "results": [
+    {
+      "category": "unit",
+      "name": "单元测试",
+      "description": "基础功能和API测试",
+      "success": true,
+      "duration": 1387,
+      "output": "\n> as-maker-prep@1.0.0 test\n> jest src/services/__tests__/market_data_service.test.js\n\n"
+    }
+  ]
+}

@@ -11,7 +11,12 @@
       "VOLATILITY_LOOKBACK": 14,
       "KLINE_INTERVAL": "15m",
       "LEVERAGE": 2,
-      "TRADE_SIDE": "both"
+      "TRADE_SIDE": "both",
+      "MIN_SPREAD_PCT": 0.06,
+      "HALF_SPREAD_PCT": 0.04,
+      "REBALANCE_TIME_INTERVAL": 10,
+      "PRICE_MOVE_THRESHOLD_PCT": 0.05,
+      "USE_TRADITIONAL_GLFT": false
     }
   ]
 }
