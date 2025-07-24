@@ -7,7 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "jest",
+    "test": "jest --",
+    "test:file": "jest",
     "test:connection": "node test_connection.js",
     "test:websocket": "node test_websocket_simple.js",
     "test:websocket:full": "node test_websocket_fixed.js",

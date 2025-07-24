@@ -112,13 +112,13 @@
 ### 8. Core - Strategy (`src/core/strategy.js`) - GLFT模型（中低频改造版）
 
 #### 8.1 中低频改造核心功能
-- [ ] 创建一个无状态的 `MidLowFreqGLFTStrategy` 模块。
-- [ ] 实现 `calculateFixedSpreadQuotes(inputs)` 函数：
-  - [ ] 使用固定的 `HALF_SPREAD_PCT` 作为基础价差
-  - [ ] 计算库存偏度：`skew = calculateInventorySkew(volatility, riskAversion)`
-  - [ ] 应用库存调节：`bid_depth = half_spread + skew * q`, `ask_depth = half_spread - skew * q`
-- [ ] 实现 `shouldUpdateQuotes(currentPrice, lastPrice, threshold)` 函数，判断是否需要更新报价。
-- [ ] 实现 `calculateRebalanceInterval(volatility, baseInterval)` 函数，动态调整重新平衡频率。
+- [x] 创建一个无状态的 `MidLowFreqGLFTStrategy` 模块。
+- [x] 实现 `calculateFixedSpreadQuotes(inputs)` 函数：
+  - [x] 使用固定的 `HALF_SPREAD_PCT` 作为基础价差
+  - [x] 计算库存偏度：`skew = calculateInventorySkew(volatility, riskAversion)`
+  - [x] 应用库存调节：`bid_depth = half_spread + skew * q`, `ask_depth = half_spread - skew * q`
+- [x] 实现 `shouldUpdateQuotes(currentPrice, lastPrice, threshold)` 函数，判断是否需要更新报价。
+- [x] 实现 `calculateRebalanceInterval(volatility, baseInterval)` 函数，动态调整重新平衡频率。
 
 #### 8.2 传统GLFT模型（备用）
 - [ ] 实现 `calculateConstants(gamma, orderFlowA, orderFlowK)` 函数，计算C1和C2常数。
