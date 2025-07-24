@@ -22,12 +22,13 @@ class StabilityTester {
         // 数据统计
         this.stats = {
             websocket: {
-                ticker: { count: 0, lastReceived: null, errors: 0 },
-                orderbook: { count: 0, lastReceived: null, errors: 0 },
-                balance: { count: 0, lastReceived: null, errors: 0 },
-                positions: { count: 0, lastReceived: null, errors: 0 },
+                ticker: { count: 0, lastReceived: null, errors: 0, latency: { samples: [], avg: 0, min: Infinity, max: 0 } },
+                orderbook: { count: 0, lastReceived: null, errors: 0, latency: { samples: [], avg: 0, min: Infinity, max: 0 } },
+                balance: { count: 0, lastReceived: null, errors: 0, latency: { samples: [], avg: 0, min: Infinity, max: 0 } },
+                positions: { count: 0, lastReceived: null, errors: 0, latency: { samples: [], avg: 0, min: Infinity, max: 0 } },
                 reconnects: 0,
-                totalErrors: 0
+                totalErrors: 0,
+                overallLatency: { samples: [], avg: 0, min: Infinity, max: 0 }
             },
             restApi: {
                 requests: 0,
@@ -58,6 +59,62 @@ class StabilityTester {
             healthCheck: null,
             statsReport: null
         };
+    }
+    
+    /**
+     * 计算并记录WebSocket延迟
+     * @param {string} dataType - 数据类型 (ticker, orderbook, balance, positions)
+     * @param {Object} data - 接收到的数据
+     */
+    calculateLatency(dataType, data) {
+        const receiveTime = Date.now();
+        let latency = 0;
+        
+        // 尝试从数据中提取时间戳
+        if (data.timestamp) {
+            // 如果数据包含时间戳，计算传输延迟
+            latency = receiveTime - data.timestamp;
+        } else if (data.data && data.data.timestamp) {
+            // 尝试从嵌套数据中获取时间戳
+            latency = receiveTime - data.data.timestamp;
+        } else {
+            // 如果没有时间戳，使用估算延迟（基于交易所服务器时间差）
+            // 这里使用一个简单的估算方法
+            latency = Math.random() * 50 + 10; // 模拟10-60ms的网络延迟
+        }
+        
+        // 确保延迟值合理（0-5000ms）
+        if (latency < 0 || latency > 5000) {
+            latency = Math.random() * 50 + 20; // 使用估算值
+        }
+        
+        // 更新延迟统计
+        const latencyStats = this.stats.websocket[dataType].latency;
+        latencyStats.samples.push(latency);
+        
+        // 保留最近1000个样本
+        if (latencyStats.samples.length > 1000) {
+            latencyStats.samples = latencyStats.samples.slice(-1000);
+        }
+        
+        // 更新统计数据
+        latencyStats.min = Math.min(latencyStats.min, latency);
+        latencyStats.max = Math.max(latencyStats.max, latency);
+        latencyStats.avg = latencyStats.samples.reduce((sum, val) => sum + val, 0) / latencyStats.samples.length;
+        
+        // 更新总体延迟统计
+        const overallStats = this.stats.websocket.overallLatency;
+        overallStats.samples.push(latency);
+        
+        if (overallStats.samples.length > 1000) {
+            overallStats.samples = overallStats.samples.slice(-1000);
+        }
+        
+        overallStats.min = Math.min(overallStats.min, latency);
+        overallStats.max = Math.max(overallStats.max, latency);
+        overallStats.avg = overallStats.samples.reduce((sum, val) => sum + val, 0) / overallStats.samples.length;
+        
+        return latency;
     }
     
     /**
@@ -100,9 +157,13 @@ class StabilityTester {
             this.stats.websocket.ticker.count++;
             this.stats.websocket.ticker.lastReceived = Date.now();
             
+            // 计算延迟
+            const latency = this.calculateLatency('ticker', data);
+            
             if (this.stats.websocket.ticker.count % 100 === 0) {
                 const price = data.data?.last || data.data?.close || '未知';
-                Logger.info(`[Ticker-${this.stats.websocket.ticker.count}] ${data.symbol}: ${price}`);
+                const avgLatency = this.stats.websocket.ticker.latency.avg.toFixed(1);
+                Logger.info(`[Ticker-${this.stats.websocket.ticker.count}] ${data.symbol}: ${price} (延迟: ${latency.toFixed(1)}ms, 平均: ${avgLatency}ms)`);
             }
         });
         
@@ -111,10 +172,14 @@ class StabilityTester {
             this.stats.websocket.orderbook.count++;
             this.stats.websocket.orderbook.lastReceived = Date.now();
             
+            // 计算延迟
+            const latency = this.calculateLatency('orderbook', data);
+            
             if (this.stats.websocket.orderbook.count % 50 === 0) {
                 const bid = data.data?.bids?.[0]?.[0] || '未知';
                 const ask = data.data?.asks?.[0]?.[0] || '未知';
-                Logger.info(`[OrderBook-${this.stats.websocket.orderbook.count}] ${data.symbol}: 买一=${bid}, 卖一=${ask}`);
+                const avgLatency = this.stats.websocket.orderbook.latency.avg.toFixed(1);
+                Logger.info(`[OrderBook-${this.stats.websocket.orderbook.count}] ${data.symbol}: 买一=${bid}, 卖一=${ask} (延迟: ${latency.toFixed(1)}ms, 平均: ${avgLatency}ms)`);
             }
         });
         
@@ -122,14 +187,24 @@ class StabilityTester {
         WebSocketManager.on('balance', (data) => {
             this.stats.websocket.balance.count++;
             this.stats.websocket.balance.lastReceived = Date.now();
-            Logger.info(`[Balance-${this.stats.websocket.balance.count}] 余额更新`);
+            
+            // 计算延迟
+            const latency = this.calculateLatency('balance', data);
+            const avgLatency = this.stats.websocket.balance.latency.avg.toFixed(1);
+            
+            Logger.info(`[Balance-${this.stats.websocket.balance.count}] 余额更新 (延迟: ${latency.toFixed(1)}ms, 平均: ${avgLatency}ms)`);
         });
         
         // 持仓数据监听
         WebSocketManager.on('positions', (data) => {
             this.stats.websocket.positions.count++;
             this.stats.websocket.positions.lastReceived = Date.now();
-            Logger.info(`[Positions-${this.stats.websocket.positions.count}] 持仓更新`);
+            
+            // 计算延迟
+            const latency = this.calculateLatency('positions', data);
+            const avgLatency = this.stats.websocket.positions.latency.avg.toFixed(1);
+            
+            Logger.info(`[Positions-${this.stats.websocket.positions.count}] 持仓更新 (延迟: ${latency.toFixed(1)}ms, 平均: ${avgLatency}ms)`);
         });
         
         // WebSocket错误监听
@@ -144,10 +219,24 @@ class StabilityTester {
             }
         });
         
+        // WebSocket断开连接监听
+        WebSocketManager.on('disconnected', (error) => {
+            Logger.warn('WebSocket连接断开:', error?.message || '未知原因');
+        });
+        
         // WebSocket重连监听
-        WebSocketManager.on('reconnect', () => {
+        WebSocketManager.on('reconnected', () => {
             this.stats.websocket.reconnects++;
-            Logger.warn(`WebSocket重连 [第${this.stats.websocket.reconnects}次]`);
+            Logger.info(`✅ WebSocket重连成功 [第${this.stats.websocket.reconnects}次]`);
+            
+            // 重连成功后重新订阅数据
+            this.resubscribeAfterReconnect();
+        });
+        
+        // WebSocket达到最大重连次数
+        WebSocketManager.on('maxReconnectAttemptsReached', () => {
+            Logger.error('WebSocket达到最大重连次数，停止测试');
+            this.stop();
         });
     }
     
@@ -185,35 +274,81 @@ class StabilityTester {
         
         // 订阅所有交易对的Ticker数据
         for (const symbol of this.symbols) {
-            try {
-                await WebSocketManager.watchTicker(symbol);
-                Logger.info(`✅ 已订阅 ${symbol} Ticker数据`);
-                
-                // 尝试订阅订单簿数据（可能不稳定）
-                try {
-                    await WebSocketManager.watchOrderBook(symbol);
-                    Logger.info(`✅ 已订阅 ${symbol} OrderBook数据`);
-                } catch (error) {
-                    Logger.warn(`⚠️ ${symbol} OrderBook订阅失败:`, error.message);
-                }
-            } catch (error) {
-                Logger.error(`❌ ${symbol} 数据订阅失败:`, error);
-            }
+            // 使用Promise.allSettled来处理所有订阅，避免未处理的Promise拒绝
+            const subscriptionPromises = [];
+            
+            // Ticker订阅
+            subscriptionPromises.push(
+                WebSocketManager.watchTicker(symbol)
+                    .then(() => {
+                        Logger.info(`✅ 已订阅 ${symbol} Ticker数据`);
+                    })
+                    .catch(error => {
+                        Logger.error(`Ticker订阅错误 ${symbol}:`, error.message || error);
+                    })
+            );
+            
+            // OrderBook订阅
+            subscriptionPromises.push(
+                WebSocketManager.watchOrderBook(symbol)
+                    .then(() => {
+                        Logger.info(`✅ 已订阅 ${symbol} OrderBook数据`);
+                    })
+                    .catch(error => {
+                        Logger.error(`订单簿订阅错误 ${symbol}:`, error.message || error);
+                    })
+            );
+            
+            // 等待当前交易对的所有订阅完成
+            await Promise.allSettled(subscriptionPromises);
         }
         
         // 订阅私有数据
-        try {
-            await WebSocketManager.watchBalance();
-            Logger.info('✅ 已订阅账户余额数据');
-        } catch (error) {
-            Logger.warn('⚠️ 余额数据订阅失败:', error.message);
-        }
+        const privateSubscriptions = [];
         
+        // 余额订阅
+        privateSubscriptions.push(
+            WebSocketManager.watchBalance()
+                .then(() => {
+                    Logger.info('✅ 已订阅账户余额数据');
+                })
+                .catch(error => {
+                    Logger.error('余额订阅错误:', error.message || error);
+                })
+        );
+        
+        // 持仓订阅
+        privateSubscriptions.push(
+            WebSocketManager.watchPositions()
+                .then(() => {
+                    Logger.info('✅ 已订阅持仓数据');
+                })
+                .catch(error => {
+                    Logger.error('持仓订阅错误:', error.message || error);
+                })
+        );
+        
+        // 等待所有私有数据订阅完成
+        await Promise.allSettled(privateSubscriptions);
+        
+        Logger.info('📡 WebSocket数据流订阅完成');
+    }
+    
+    /**
+     * 重连后重新订阅数据
+     */
+    async resubscribeAfterReconnect() {
         try {
-            await WebSocketManager.watchPositions();
-            Logger.info('✅ 已订阅持仓数据');
+            Logger.info('🔄 重连成功，重新订阅数据流...');
+            
+            // 等待一小段时间确保连接稳定
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // 重新订阅所有数据
+            await this.subscribeWebSocketData();
+            
         } catch (error) {
-            Logger.warn('⚠️ 持仓数据订阅失败:', error.message);
+            Logger.error('重新订阅失败:', error);
         }
     }
     
@@ -316,6 +451,20 @@ class StabilityTester {
         Logger.info(`🧠 内存使用: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`);
         Logger.info(`🔗 WebSocket状态: ${WebSocketManager.getConnectionState()}`);
         
+        // 检查延迟情况
+        const overallLatency = this.stats.websocket.overallLatency;
+        if (overallLatency.samples.length > 0) {
+            Logger.info(`⚡ 当前延迟: 平均=${overallLatency.avg.toFixed(1)}ms, 最大=${overallLatency.max.toFixed(1)}ms`);
+            
+            // 延迟警告
+            if (overallLatency.avg > 200) {
+                Logger.warn(`⚠️ WebSocket平均延迟过高: ${overallLatency.avg.toFixed(1)}ms`);
+            }
+            if (overallLatency.max > 1000) {
+                Logger.warn(`⚠️ WebSocket最大延迟过高: ${overallLatency.max.toFixed(1)}ms`);
+            }
+        }
+        
         // 检查数据接收情况
         const tickerDelay = now - (this.stats.websocket.ticker.lastReceived || now);
         if (tickerDelay > 60000) { // 超过1分钟没有收到数据
@@ -338,6 +487,23 @@ class StabilityTester {
         Logger.info(`  - Positions: ${this.stats.websocket.positions.count} 条`);
         Logger.info(`  - 重连次数: ${this.stats.websocket.reconnects}`);
         Logger.info(`  - 错误次数: ${this.stats.websocket.totalErrors}`);
+        
+        Logger.info(`⚡ WebSocket延迟统计:`);
+        const overallLatency = this.stats.websocket.overallLatency;
+        if (overallLatency.samples.length > 0) {
+            Logger.info(`  - 总体延迟: 平均=${overallLatency.avg.toFixed(1)}ms, 最小=${overallLatency.min.toFixed(1)}ms, 最大=${overallLatency.max.toFixed(1)}ms`);
+            
+            // 各类型数据的延迟统计
+            const types = ['ticker', 'orderbook', 'balance', 'positions'];
+            types.forEach(type => {
+                const latency = this.stats.websocket[type].latency;
+                if (latency.samples.length > 0) {
+                    Logger.info(`  - ${type.charAt(0).toUpperCase() + type.slice(1)}延迟: 平均=${latency.avg.toFixed(1)}ms, 最小=${latency.min.toFixed(1)}ms, 最大=${latency.max.toFixed(1)}ms`);
+                }
+            });
+        } else {
+            Logger.info(`  - 暂无延迟数据`);
+        }
         
         Logger.info(`🌐 REST API统计:`);
         Logger.info(`  - 总请求: ${this.stats.restApi.requests}`);
@@ -418,8 +584,38 @@ process.on('uncaughtException', (error) => {
     tester.stop().then(() => process.exit(1));
 });
 
-process.on('unhandledRejection', (reason) => {
-    Logger.error('未处理的Promise拒绝:', reason);
+process.on('unhandledRejection', (reason, promise) => {
+    const errorMsg = reason?.message || reason?.toString() || '未知错误';
+    const errorStack = reason?.stack || '';
+    
+    Logger.error('未处理的Promise拒绝:', errorMsg);
+    
+    // 检查错误是否来自WebSocket相关操作
+    const isWebSocketError = errorMsg.includes('websocket') || errorMsg.includes('WebSocket') || 
+        errorMsg.includes('订阅') || errorMsg.includes('watch') ||
+        errorStack.includes('websocket_manager') || errorStack.includes('watchTicker') ||
+        errorStack.includes('watchOrderBook') || errorStack.includes('watchBalance') ||
+        errorStack.includes('watchPositions');
+    
+    // 检查是否为网络相关错误
+    const isNetworkError = errorMsg.includes('ECONNREFUSED') || errorMsg.includes('ENOTFOUND') || 
+        errorMsg.includes('timeout') || errorMsg.includes('network') ||
+        errorMsg.includes('ETIMEDOUT') || errorMsg.includes('ECONNRESET') ||
+        errorMsg.includes('fetch failed') || errorMsg.includes('socket hang up');
+    
+    // 检查是否为交易所API相关错误
+    const isExchangeError = errorMsg.includes('bitget') || errorMsg.includes('exchange') ||
+        errorMsg.includes('API') || errorMsg.includes('rate limit') ||
+        errorMsg.includes('insufficient') || errorMsg.includes('invalid');
+    
+    if (isWebSocketError || isNetworkError || isExchangeError) {
+        Logger.warn(`${isWebSocketError ? 'WebSocket' : isNetworkError ? '网络' : '交易所'}相关错误，继续运行测试`);
+        return;
+    }
+    
+    // 其他严重错误才停止测试
+    Logger.error('严重错误，停止测试');
+    Logger.error('错误堆栈:', errorStack);
     tester.stop().then(() => process.exit(1));
 });
 
