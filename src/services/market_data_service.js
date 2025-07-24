@@ -289,6 +289,7 @@ class MarketDataService extends EventEmitter {
                 Logger.error(`更新 ${symbol} 波动率失败:`, error);
             }
         }, updateInterval);
+        timer.unref();
         
         this.volatilityTimers.set(symbol, timer);
         Logger.info(`${symbol} 波动率定期更新已启动，间隔: ${updateInterval / 1000}秒`);

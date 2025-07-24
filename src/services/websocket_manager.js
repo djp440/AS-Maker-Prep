@@ -223,11 +223,21 @@ class WebSocketManager extends EventEmitter {
                 }
             };
 
-            this.watchHandlers.set(topicKey, handler);
+            // 包装handler以确保Promise被正确处理
+            const wrappedHandler = () => {
+                handler().catch(error => {
+                    Logger.error(`Ticker handler Promise错误 ${symbol}:`, error);
+                    if (!this.isReconnecting && this.connectionState === 'open') {
+                        this.handleConnectionError(error);
+                    }
+                });
+            };
+
+            this.watchHandlers.set(topicKey, wrappedHandler);
             
             // 只有在连接状态为open时才启动监听
             if (this.connectionState === 'open') {
-                handler(); // 启动监听
+                wrappedHandler(); // 启动监听
             }
 
         } catch (error) {
@@ -274,11 +284,21 @@ class WebSocketManager extends EventEmitter {
                 }
             };
 
-            this.watchHandlers.set(topicKey, handler);
+            // 包装handler以确保Promise被正确处理
+            const wrappedHandler = () => {
+                handler().catch(error => {
+                    Logger.error(`OrderBook handler Promise错误 ${symbol}:`, error);
+                    if (!this.isReconnecting && this.connectionState === 'open') {
+                        this.handleConnectionError(error);
+                    }
+                });
+            };
+
+            this.watchHandlers.set(topicKey, wrappedHandler);
             
             // 只有在连接状态为open时才启动监听
             if (this.connectionState === 'open') {
-                handler(); // 启动监听
+                wrappedHandler(); // 启动监听
             }
 
         } catch (error) {
@@ -375,11 +395,21 @@ class WebSocketManager extends EventEmitter {
                 }
             };
 
-            this.watchHandlers.set(topicKey, handler);
+            // 包装handler以确保Promise被正确处理
+            const wrappedHandler = () => {
+                handler().catch(error => {
+                    Logger.error('Balance handler Promise错误:', error);
+                    if (!this.isReconnecting && this.connectionState === 'open') {
+                        this.handleConnectionError(error);
+                    }
+                });
+            };
+
+            this.watchHandlers.set(topicKey, wrappedHandler);
             
             // 只有在连接状态为open时才启动监听
             if (this.connectionState === 'open') {
-                handler(); // 启动监听
+                wrappedHandler(); // 启动监听
             }
 
         } catch (error) {
@@ -426,11 +456,21 @@ class WebSocketManager extends EventEmitter {
                 }
             };
 
-            this.watchHandlers.set(topicKey, handler);
+            // 包装handler以确保Promise被正确处理
+            const wrappedHandler = () => {
+                handler().catch(error => {
+                    Logger.error(`Positions handler Promise错误 ${symbol || 'all'}:`, error);
+                    if (!this.isReconnecting && this.connectionState === 'open') {
+                        this.handleConnectionError(error);
+                    }
+                });
+            };
+
+            this.watchHandlers.set(topicKey, wrappedHandler);
             
             // 只有在连接状态为open时才启动监听
             if (this.connectionState === 'open') {
-                handler(); // 启动监听
+                wrappedHandler(); // 启动监听
             }
 
         } catch (error) {
@@ -454,9 +494,10 @@ class WebSocketManager extends EventEmitter {
         this.connectionQuality.lastErrorTime = Date.now();
         
         // 根据CCXT错误类型进行分类处理
-        const isRetryableError = this.isRetryableError(error);
+        const isRetryable = this.isRetryableError(error);
+        Logger.debug(`错误是否可重试: ${isRetryable}, 错误消息: ${error.message}`); // 添加日志
         
-        if (isRetryableError) {
+        if (isRetryable) {
             Logger.warn('WebSocket连接错误（可重试）:', error.message);
             this.connectionState = 'closed';
             this.emit('disconnected', error);
@@ -477,18 +518,52 @@ class WebSocketManager extends EventEmitter {
      */
     isRetryableError(error) {
         // 网络错误、超时错误、交易所临时繁忙等可重试
-        return (
+        const isNetworkError = (
             error instanceof ccxt.NetworkError ||
             error instanceof ccxt.RequestTimeout ||
             error instanceof ccxt.ExchangeNotAvailable ||
             error instanceof ccxt.RateLimitExceeded || // 速率限制错误
-            error instanceof ccxt.DDoSProtection ||    // DDoS保护错误
-            (error instanceof ccxt.ExchangeError && 
-             (error.message.includes('busy') || 
-              error.message.includes('timeout') ||
-              error.message.includes('connection') ||
-              error.message.includes('network')))
+            error instanceof ccxt.DDoSProtection      // DDoS保护错误
         );
+
+        // 检查错误消息中的关键词
+        const errorMessage = error.message ? error.message.toLowerCase() : '';
+        const errorStack = error.stack ? error.stack.toLowerCase() : '';
+        
+        const isRetryableMessage = (
+            errorMessage.includes('busy') ||
+            errorMessage.includes('timeout') ||
+            errorMessage.includes('connection') ||
+            errorMessage.includes('network') ||
+            errorMessage.includes('websocket') ||
+            errorMessage.includes('订阅') ||
+            errorMessage.includes('subscribe') ||
+            errorMessage.includes('watch') ||
+            errorMessage.includes('reconnect') ||
+            errorMessage.includes('重连') ||
+            errorMessage.includes('balance') ||
+            errorMessage.includes('positions') ||
+            errorMessage.includes('ticker') ||
+            errorMessage.includes('orderbook') ||
+            errorMessage.includes('缺少') ||
+            errorMessage.includes('missing') ||
+            errorMessage.includes('credentials') ||
+            errorMessage.includes('凭证') ||
+            errorMessage.includes('init') || // 添加初始化相关
+            errorMessage.includes('failed') // 添加通用失败
+        );
+
+        // 检查错误堆栈中的关键信息
+        const isRetryableStack = (
+            errorStack.includes('websocket') ||
+            errorStack.includes('watch') ||
+            errorStack.includes('subscribe')
+        );
+
+        return isNetworkError || 
+               (error instanceof ccxt.ExchangeError && isRetryableMessage) ||
+               isRetryableMessage ||
+               isRetryableStack;
     }
 
     /**
@@ -509,6 +584,7 @@ class WebSocketManager extends EventEmitter {
         const delay = this.reconnectDelays[delayIndex];
 
         Logger.info(`${delay / 1000}秒后尝试第${this.reconnectAttempts + 1}次重连`);
+        Logger.debug(`当前重连尝试: ${this.reconnectAttempts}, 延迟: ${delay}ms`); // 添加日志
 
         this.reconnectTimer = setTimeout(async () => {
             try {
@@ -520,6 +596,7 @@ class WebSocketManager extends EventEmitter {
                 this.scheduleReconnect(); // 继续尝试重连
             }
         }, delay);
+        this.reconnectTimer.unref();
     }
 
     /**
@@ -711,6 +788,7 @@ class WebSocketManager extends EventEmitter {
                 this.handleConnectionError(new Error('Connection health check failed: no data received'));
             }
         }, this.healthCheckInterval);
+        this.healthCheckTimer.unref();
     }
 
     /**
@@ -736,6 +814,7 @@ class WebSocketManager extends EventEmitter {
          this.qualityCheckTimer = setInterval(() => {
              this.updateConnectionQuality();
          }, this.qualityCheckInterval);
+         this.qualityCheckTimer.unref();
      }
 
      /**
