@@ -128,9 +128,9 @@
 - [x] 实现主入口函数 `calculateTraditionalGLFTQuotes(inputs)`，返回 `{ bidPrice, askPrice, halfSpread, skew }`。
 
 #### 8.3 通用功能
-- [ ] 实现库存限制检查 `checkInventoryLimits(normalizedInventory, maxInventoryQ)`。
-- [ ] 实现策略模式选择器 `selectStrategy(useTraditionalGLFT)`。
-- [ ] 为所有策略模块编写单元测试，覆盖关键场景（零库存、多/空头库存、库存限制触发、频率控制）。
+- [x] 实现库存限制检查 `checkInventoryLimits(normalizedInventory, maxInventoryQ)`。
+- [x] 实现策略模式选择器 `selectStrategy(useTraditionalGLFT)`。
+- [x] 为所有策略模块编写单元测试，覆盖关键场景（零库存、多/空头库存、库存限制触发、频率控制）。
 
 ### 9. Core - Trader (`src/core/trader.js`) - 中低频改造版
 > 详细设计文档: `docs/modules/09_trader_midlow_freq.md`

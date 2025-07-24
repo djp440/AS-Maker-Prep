@@ -273,4 +273,178 @@ describe('MidLowFreqGLFTStrategy', () => {
             }).not.toThrow();
         });
     });
+
+    // ==================== 通用功能模块测试 ====================
+
+    describe('checkInventoryLimits', () => {
+        test('正常库存范围内', () => {
+            const result = MidLowFreqGLFTStrategy.checkInventoryLimits(0.5, 1.0);
+            expect(result.canBid).toBe(true);
+            expect(result.canAsk).toBe(true);
+            expect(result.inventoryLimited).toBe(false);
+        });
+
+        test('达到最大多头库存限制', () => {
+            const result = MidLowFreqGLFTStrategy.checkInventoryLimits(1.0, 1.0);
+            expect(result.canBid).toBe(false); // 不能再买入
+            expect(result.canAsk).toBe(true);  // 可以卖出
+            expect(result.inventoryLimited).toBe(true);
+        });
+
+        test('达到最大空头库存限制', () => {
+            const result = MidLowFreqGLFTStrategy.checkInventoryLimits(-1.0, 1.0);
+            expect(result.canBid).toBe(true);  // 可以买入
+            expect(result.canAsk).toBe(false); // 不能再卖出
+            expect(result.inventoryLimited).toBe(true);
+        });
+
+        test('超出库存限制', () => {
+            const result = MidLowFreqGLFTStrategy.checkInventoryLimits(1.2, 1.0);
+            expect(result.canBid).toBe(false);
+            expect(result.canAsk).toBe(true);
+            expect(result.inventoryLimited).toBe(true);
+        });
+
+        test('零库存', () => {
+            const result = MidLowFreqGLFTStrategy.checkInventoryLimits(0, 1.0);
+            expect(result.canBid).toBe(true);
+            expect(result.canAsk).toBe(true);
+            expect(result.inventoryLimited).toBe(false);
+        });
+    });
+
+    describe('selectStrategy', () => {
+        test('选择传统GLFT模式', () => {
+            const result = MidLowFreqGLFTStrategy.selectStrategy(true);
+            expect(result.strategyMode).toBe('traditional_glft');
+            expect(result.description).toContain('传统GLFT模型');
+        });
+
+        test('选择固定价差模式', () => {
+            const result = MidLowFreqGLFTStrategy.selectStrategy(false);
+            expect(result.strategyMode).toBe('fixed_spread');
+            expect(result.description).toContain('固定价差模式');
+        });
+    });
+
+    describe('calculateOptimalQuotes', () => {
+        const baseInputs = {
+            midPrice: 100,
+            volatility: 0.02,
+            normalizedInventory: 0.3,
+            maxInventoryQ: 1.0
+        };
+
+        test('固定价差模式 - 正常库存', () => {
+            const inputs = {
+                ...baseInputs,
+                useTraditionalGLFT: false,
+                halfSpreadPct: 0.1,
+                riskAversion: 0.01
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            // 验证基本结构和逻辑
+            expect(result.bidPrice).toBeLessThan(100);
+            expect(result.askPrice).toBeGreaterThan(100);
+            expect(result.halfSpread).toBeCloseTo(0.1, 3);
+            expect(result.inventoryLimited).toBe(false);
+            expect(result.strategyMode).toBe('fixed_spread');
+            
+            // 验证价差计算
+            const spread = result.askPrice - result.bidPrice;
+            expect(spread).toBeGreaterThan(0.15); // 考虑库存偏度，价差应该大于2*halfSpread
+        });
+
+        test('传统GLFT模式 - 正常库存', () => {
+            const inputs = {
+                ...baseInputs,
+                useTraditionalGLFT: true,
+                gamma: 0.1,
+                orderFlowA: 140,
+                orderFlowK: 1.5
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            expect(result.bidPrice).toBeLessThan(100);
+            expect(result.askPrice).toBeGreaterThan(100);
+            expect(result.halfSpread).toBeGreaterThan(0);
+            expect(result.inventoryLimited).toBe(false);
+            expect(result.strategyMode).toBe('traditional_glft');
+        });
+
+        test('库存限制 - 最大多头库存', () => {
+            const inputs = {
+                ...baseInputs,
+                normalizedInventory: 1.0, // 达到最大库存
+                useTraditionalGLFT: false,
+                halfSpreadPct: 0.1,
+                riskAversion: 0.01
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            expect(result.bidPrice).toBeNull(); // 禁用买单
+            expect(result.askPrice).not.toBeNull(); // 保留卖单
+            expect(result.inventoryLimited).toBe(true);
+        });
+
+        test('库存限制 - 最大空头库存', () => {
+            const inputs = {
+                ...baseInputs,
+                normalizedInventory: -1.0, // 达到最大空头库存
+                useTraditionalGLFT: false,
+                halfSpreadPct: 0.1,
+                riskAversion: 0.01
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            expect(result.bidPrice).not.toBeNull(); // 保留买单
+            expect(result.askPrice).toBeNull(); // 禁用卖单
+            expect(result.inventoryLimited).toBe(true);
+        });
+
+        test('传统GLFT模式 - 零库存', () => {
+            const inputs = {
+                ...baseInputs,
+                normalizedInventory: 0,
+                useTraditionalGLFT: true,
+                gamma: 0.1,
+                orderFlowA: 140,
+                orderFlowK: 1.5
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            // 验证基本结构
+            expect(result.bidPrice).toBeLessThan(100);
+            expect(result.askPrice).toBeGreaterThan(100);
+            expect(result.skew).toBeCloseTo(0, 3); // 零库存时偏度应该接近0
+            expect(result.inventoryLimited).toBe(false);
+            
+            // 验证价格相对于中价的对称性
+            const bidOffset = 100 - result.bidPrice;
+            const askOffset = result.askPrice - 100;
+            expect(Math.abs(bidOffset - askOffset)).toBeLessThan(0.1); // 偏移量应该相近
+        });
+
+        test('边界条件 - 极小波动率', () => {
+            const inputs = {
+                ...baseInputs,
+                volatility: 0.001,
+                useTraditionalGLFT: false,
+                halfSpreadPct: 0.1,
+                riskAversion: 0.01
+            };
+
+            const result = MidLowFreqGLFTStrategy.calculateOptimalQuotes(inputs);
+            
+            expect(result.bidPrice).toBeLessThan(100);
+            expect(result.askPrice).toBeGreaterThan(100);
+            expect(result.halfSpread).toBeCloseTo(0.1, 3);
+        });
+    });
 });

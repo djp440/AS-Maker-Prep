@@ -178,6 +178,138 @@ class MidLowFreqGLFTStrategy {
             skew
         };
     }
+
+    // ==================== 通用功能模块 ====================
+
+    /**
+     * 检查库存限制，当库存达到极限时禁用相应方向的报价。
+     * @param {number} normalizedInventory - 标准化库存（-1到1之间）。
+     * @param {number} maxInventoryQ - 最大库存限制（绝对值）。
+     * @returns {{canBid: boolean, canAsk: boolean, inventoryLimited: boolean}} 库存限制检查结果。
+     */
+    static checkInventoryLimits(normalizedInventory, maxInventoryQ) {
+        // 检查库存是否达到极限
+        const atMaxLong = normalizedInventory >= maxInventoryQ;  // 达到最大多头库存
+        const atMaxShort = normalizedInventory <= -maxInventoryQ; // 达到最大空头库存
+        
+        return {
+            canBid: !atMaxLong,    // 未达到最大多头库存时可以下买单
+            canAsk: !atMaxShort,   // 未达到最大空头库存时可以下卖单
+            inventoryLimited: atMaxLong || atMaxShort // 是否触发库存限制
+        };
+    }
+
+    /**
+     * 策略模式选择器，根据配置选择使用固定价差模式还是传统GLFT模式。
+     * @param {boolean} useTraditionalGLFT - 是否使用传统GLFT模式。
+     * @returns {{strategyMode: string, description: string}} 策略模式信息。
+     */
+    static selectStrategy(useTraditionalGLFT) {
+        if (useTraditionalGLFT) {
+            return {
+                strategyMode: 'traditional_glft',
+                description: '传统GLFT模型：基于理论公式的动态价差和偏度计算'
+            };
+        } else {
+            return {
+                strategyMode: 'fixed_spread',
+                description: '固定价差模式：简化的中低频做市策略，固定价差+库存偏度'
+            };
+        }
+    }
+
+    /**
+     * 统一的报价计算入口函数，整合固定价差和传统GLFT两种模式。
+     * @param {object} inputs - 计算报价所需的输入参数。
+     * @param {number} inputs.midPrice - 中间价。
+     * @param {number} inputs.volatility - 波动率。
+     * @param {number} inputs.normalizedInventory - 标准化库存（-1到1之间）。
+     * @param {number} inputs.maxInventoryQ - 最大库存限制。
+     * @param {boolean} [inputs.useTraditionalGLFT=false] - 是否使用传统GLFT模式。
+     * @param {number} [inputs.halfSpreadPct] - 固定价差模式的半价差百分比。
+     * @param {number} [inputs.riskAversion] - 风险厌恶系数。
+     * @param {number} [inputs.gamma] - 传统GLFT模式的风险厌恶系数。
+     * @param {number} [inputs.orderFlowA] - 传统GLFT模式的订单流强度基准参数。
+     * @param {number} [inputs.orderFlowK] - 传统GLFT模式的订单流强度衰减参数。
+     * @returns {{bidPrice: number|null, askPrice: number|null, halfSpread: number, skew: number, inventoryLimited: boolean, strategyMode: string}} 统一的报价结果。
+     */
+    static calculateOptimalQuotes(inputs) {
+        const {
+            midPrice,
+            volatility,
+            normalizedInventory,
+            maxInventoryQ,
+            useTraditionalGLFT = false,
+            halfSpreadPct,
+            riskAversion,
+            gamma,
+            orderFlowA,
+            orderFlowK
+        } = inputs;
+
+        // 步骤1: 选择策略模式
+        const { strategyMode } = this.selectStrategy(useTraditionalGLFT);
+
+        // 步骤2: 检查库存限制
+        const { canBid, canAsk, inventoryLimited } = this.checkInventoryLimits(
+            normalizedInventory,
+            maxInventoryQ
+        );
+
+        let bidPrice = null;
+        let askPrice = null;
+        let halfSpread = 0;
+        let skew = 0;
+
+        // 步骤3: 根据策略模式计算报价
+        if (useTraditionalGLFT) {
+            // 传统GLFT模式
+            const result = this.calculateTraditionalGLFTQuotes({
+                midPrice,
+                volatility,
+                gamma,
+                orderFlowA,
+                orderFlowK,
+                normalizedInventory
+            });
+            
+            bidPrice = result.bidPrice;
+            askPrice = result.askPrice;
+            halfSpread = result.halfSpread;
+            skew = result.skew;
+        } else {
+            // 固定价差模式
+            const result = this.calculateFixedSpreadQuotes({
+                midPrice,
+                halfSpreadPct,
+                volatility,
+                riskAversion,
+                inventory: normalizedInventory
+            });
+            
+            bidPrice = result.bidPrice;
+            askPrice = result.askPrice;
+            halfSpread = midPrice * halfSpreadPct / 100;
+            skew = this.calculateInventorySkew(volatility, riskAversion);
+        }
+
+        // 步骤4: 应用库存限制
+        if (!canBid) {
+            bidPrice = null; // 库存过多时禁用买单
+        }
+        if (!canAsk) {
+            askPrice = null; // 库存过少时禁用卖单
+        }
+
+        return {
+            bidPrice,
+            askPrice,
+            halfSpread,
+            skew,
+            inventoryLimited,
+            strategyMode
+        };
+    }
 }
 
 module.exports = MidLowFreqGLFTStrategy;
