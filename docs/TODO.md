@@ -121,11 +121,11 @@
 - [x] 实现 `calculateRebalanceInterval(volatility, baseInterval)` 函数，动态调整重新平衡频率。
 
 #### 8.2 传统GLFT模型（备用）
-- [ ] 实现 `calculateConstants(gamma, orderFlowA, orderFlowK)` 函数，计算C1和C2常数。
-- [ ] 实现 `calculateHalfSpread(C1, C2, volatility)` 函数。
-- [ ] 实现 `calculateSkew(C2, volatility)` 函数。
-- [ ] 实现 `calculateQuoteDepths(halfSpread, skew, normalizedInventory)` 函数。
-- [ ] 实现主入口函数 `calculateTraditionalGLFTQuotes(inputs)`，返回 `{ bidPrice, askPrice, halfSpread, skew }`。
+- [x] 实现 `calculateConstants(gamma, orderFlowA, orderFlowK)` 函数，计算C1和C2常数。
+- [x] 实现 `calculateHalfSpread(C1, C2, volatility)` 函数。
+- [x] 实现 `calculateSkew(C2, volatility)` 函数。
+- [x] 实现 `calculateQuoteDepths(halfSpread, skew, normalizedInventory)` 函数。
+- [x] 实现主入口函数 `calculateTraditionalGLFTQuotes(inputs)`，返回 `{ bidPrice, askPrice, halfSpread, skew }`。
 
 #### 8.3 通用功能
 - [ ] 实现库存限制检查 `checkInventoryLimits(normalizedInventory, maxInventoryQ)`。
