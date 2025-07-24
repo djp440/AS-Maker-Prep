@@ -136,37 +136,37 @@
 > 详细设计文档: `docs/modules/09_trader_midlow_freq.md`
 
 #### 9.1 基础交易框架
-- [ ] 创建 `Trader` 类，为每个交易对创建一个实例。
-- [ ] 实现启动时取消所有"僵尸"订单的逻辑。
-- [ ] 在主循环中添加完整的 `try...catch` 块，防止单个交易对失败影响全局。
+- [x] 创建 `Trader` 类，为每个交易对创建一个实例。
+- [x] 实现启动时取消所有"僵尸"订单的逻辑。
+- [x] 在主循环中添加完整的 `try...catch` 块，防止单个交易对失败影响全局。
 
 #### 9.2 智能交易循环
-- [ ] 实现智能交易循环 (`intelligentTradingLoop`)：
-  - [ ] 时间触发机制：基于 `REBALANCE_TIME_INTERVAL` 定期检查
-  - [ ] 价格变动触发机制：基于 `PRICE_MOVE_THRESHOLD_PCT` 主动更新
-  - [ ] 混合触发策略：`shouldUpdateQuotes()` 函数实现
-  - [ ] 动态频率调整：`calculateUpdateInterval()` 根据库存风险调整
-  - [ ] 价格变动触发：监控中价变化，超过 `PRICE_MOVE_THRESHOLD_PCT` 时触发
-  - [ ] 避免过度频繁更新：实现最小更新间隔保护
-- [ ] 实现库存再平衡逻辑 (`rebalanceInventory`)：
-  - [ ] 库存状态评估和风险等级计算
-  - [ ] 偏度驱动报价调整机制（正库存时买单更远，负库存时卖单更远）
-  - [ ] 动态调整再平衡频率（库存风险高时更频繁）
-  - [ ] 库存自动调节验证和测试
-- [ ] 实现 `shouldRebalance(currentPrice, lastUpdatePrice, lastUpdateTime)` 判断逻辑。
-- [ ] 实现 `executeRebalance()` 方法：
-  - [ ] 数据收集 -> 策略计算 -> 精度调整 -> 风险检查 -> 订单执行
-  - [ ] 实现报价更新判断逻辑，避免无意义的频繁API调用。
+- [x] 实现智能交易循环 (`intelligentTradingLoop`)：
+  - [x] 时间触发机制：基于 `REBALANCE_TIME_INTERVAL` 定期检查
+  - [x] 价格变动触发机制：基于 `PRICE_MOVE_THRESHOLD_PCT` 主动更新
+  - [x] 混合触发策略：`shouldUpdateQuotes()` 函数实现
+  - [x] 动态频率调整：`calculateUpdateInterval()` 根据库存风险调整
+  - [x] 价格变动触发：监控中价变化，超过 `PRICE_MOVE_THRESHOLD_PCT` 时触发
+  - [x] 避免过度频繁更新：实现最小更新间隔保护
+- [x] 实现库存再平衡逻辑 (`rebalanceInventory`)：
+  - [x] 库存状态评估和风险等级计算
+  - [x] 偏度驱动报价调整机制（正库存时买单更远，负库存时卖单更远）
+  - [x] 动态调整再平衡频率（库存风险高时更频繁）
+  - [x] 库存自动调节验证和测试
+- [x] 实现 `shouldRebalance(currentPrice, lastUpdatePrice, lastUpdateTime)` 判断逻辑。
+- [x] 实现 `executeRebalance()` 方法：
+  - [x] 数据收集 -> 策略计算 -> 精度调整 -> 风险检查 -> 订单执行
+  - [x] 实现报价更新判断逻辑，避免无意义的频繁API调用。
 
 #### 9.3 订单管理优化
-- [ ] 实现批量订单操作 `batchOrderUpdate(cancelOrders, newOrders)`。
-- [ ] 实现订单状态缓存和WebSocket实时同步机制。
-- [ ] 实现智能订单更新判断（只有价格差异超过阈值时才更新）。
-- [ ] 实现订单生命周期完整管理。
-- [ ] 实现网络异常时的订单状态恢复机制。
+- [x] 实现批量订单操作 `batchOrderUpdate(cancelOrders, newOrders)`。
+- [x] 实现订单状态缓存和WebSocket实时同步机制。
+- [x] 实现智能订单更新判断（只有价格差异超过阈值时才更新）。
+- [x] 实现订单生命周期完整管理。
+- [x] 实现网络异常时的订单状态恢复机制。
 
 #### 9.4 网络异常恢复
-- [ ] 实现连接状态监控和指标收集。
+- [x] 实现连接状态监控和指标收集。
 - [ ] 实现指数退避自动重连机制。
 - [ ] 实现降级模式和恢复策略。
 - [ ] 实现网络异常时的风险控制机制。
