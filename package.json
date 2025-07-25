@@ -7,8 +7,12 @@
     "doc": "docs"
   },
   "scripts": {
+    "start": "node src/main.js",
     "test": "jest --",
     "test:file": "jest",
+    "test:main": "npm test src/__tests__/main.test.js",
+    "test:main:integration": "npm test src/__tests__/main.integration.test.js",
+    "test:main:startup": "node test_main_startup.js",
     "test:connection": "node test_connection.js",
     "test:websocket": "node test_websocket_simple.js",
     "test:websocket:full": "node test_websocket_fixed.js",

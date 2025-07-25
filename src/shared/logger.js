@@ -10,7 +10,7 @@ const streams = [
     stream: pino.destination({ dest: path.join(logDir, 'error.log'), sync: true, mkdir: true })
   },
   {
-    level: 'info',
+    level: 'debug',
     stream: pino.destination({ dest: path.join(logDir, 'combined.log'), sync: true, mkdir: true })
   }
 ];
@@ -46,7 +46,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 const logger = pino(
   {
-    level: 'info',
+    level: 'debug',
   },
   pino.multistream(streams)
 );

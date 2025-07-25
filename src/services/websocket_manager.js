@@ -81,7 +81,7 @@ class WebSocketManager extends EventEmitter {
         this.healthCheckTimer = null;
         this.healthCheckInterval = 30000; // 30秒检查一次
         this.lastDataReceived = Date.now();
-        this.maxSilentTime = 60000; // 60秒无数据则认为连接异常
+        this.maxSilentTime = 120000; // 120秒无数据则认为连接异常（增加容忍度）
         
         // 连接质量监控
         this.connectionQuality = {
@@ -128,7 +128,7 @@ class WebSocketManager extends EventEmitter {
                 secret: credentials.apiSecret,
                 password: credentials.passphrase,
                 enableRateLimit: true,
-                sandbox: false, // Bitget没有沙盒环境
+                sandbox: isPaperTrading, // 根据模拟盘/实盘模式设置
             };
 
             // 针对Bitget的配置
@@ -784,8 +784,11 @@ class WebSocketManager extends EventEmitter {
             const timeSinceLastData = now - this.lastDataReceived;
             
             if (timeSinceLastData > this.maxSilentTime && this.connectionState === 'open') {
-                Logger.warn(`连接健康检查失败: ${timeSinceLastData}ms 无数据接收`);
-                this.handleConnectionError(new Error('Connection health check failed: no data received'));
+                Logger.warn(`连接健康检查失败: ${timeSinceLastData}ms 无数据接收，尝试重连而非关闭程序`);
+                // 不直接抛出错误，而是尝试重连
+                this.connectionState = 'closed';
+                this.emit('disconnected', new Error('Health check timeout'));
+                this.scheduleReconnect();
             }
         }, this.healthCheckInterval);
         this.healthCheckTimer.unref();

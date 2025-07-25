@@ -597,9 +597,13 @@ class OrderRecoveryManager extends EventEmitter {
             // 批量取消订单
             const cancelPromises = orders.map(async (order) => {
                 try {
-                    await this.services.exchangeService.cancelOrder(order.id, symbol);
-                    canceledCount++;
-                    Logger.debug(`Canceled order ${order.id} for ${symbol}`);
+                    const result = await this.services.exchangeService.cancelOrder(order.id, symbol);
+                    if (result === null) {
+                        Logger.debug(`问题订单 ${order.id} 已不存在，可能已成交或过期`);
+                    } else {
+                        canceledCount++;
+                        Logger.debug(`Canceled order ${order.id} for ${symbol}`);
+                    }
                 } catch (error) {
                     Logger.warn(`Failed to cancel order ${order.id} for ${symbol}:`, error.message);
                 }

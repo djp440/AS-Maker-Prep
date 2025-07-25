@@ -10,6 +10,7 @@ const ExchangeService = require('../services/exchange_service');
 const AccountService = require('../services/account_service');
 const MarketDataService = require('../services/market_data_service');
 const OrderRecoveryManager = require('./order_recovery_manager');
+const NetworkRecoveryManager = require('./network_recovery_manager');
 const Logger = require('../shared/logger');
 const { getTimestamp, sleep } = require('../shared/utils');
 
@@ -33,6 +34,7 @@ class Trader extends EventEmitter {
         this.exchangeService = ExchangeService;
         this.accountService = AccountService;
         this.marketDataService = MarketDataService;
+        this.websocketManager = require('../services/websocket_manager');
         
         // 交易状态
         this.isRunning = false;
@@ -47,6 +49,9 @@ class Trader extends EventEmitter {
         
         // 订单恢复管理器
         this.orderRecoveryManager = null;
+        
+        // 网络恢复管理器
+        this.networkRecoveryManager = null;
         
         // 定时器
         this.tradingTimer = null;
@@ -97,6 +102,9 @@ class Trader extends EventEmitter {
             // 初始化并启动订单恢复管理器
             await this.initializeOrderRecovery();
             
+            // 初始化网络恢复管理器
+            await this.initializeNetworkRecovery();
+            
             this.emit('started', { symbol: this.symbol });
             Logger.info(`Trader started successfully for ${this.symbol}`);
             
@@ -134,6 +142,13 @@ class Trader extends EventEmitter {
                 this.orderRecoveryManager.stopMonitoring();
                 this.orderRecoveryManager.destroy();
                 this.orderRecoveryManager = null;
+            }
+            
+            // 停止网络恢复管理器
+            if (this.networkRecoveryManager) {
+                this.networkRecoveryManager.stop();
+                this.networkRecoveryManager.destroy();
+                this.networkRecoveryManager = null;
             }
             
             // 取消所有活动订单
@@ -179,12 +194,20 @@ class Trader extends EventEmitter {
             if (openOrders && openOrders.length > 0) {
                 Logger.info(`Found ${openOrders.length} zombie orders for ${this.symbol}`);
                 
-                const cancelPromises = openOrders.map(order => 
-                    this.exchangeService.cancelOrder(order.id, this.symbol)
-                        .catch(error => {
-                            Logger.warn(`Failed to cancel zombie order ${order.id}:`, error.message);
-                        })
-                );
+                const cancelPromises = openOrders.map(async (order) => {
+                    try {
+                        const result = await this.exchangeService.cancelOrder(order.id, this.symbol);
+                        if (result === null) {
+                            Logger.debug(`僵尸订单 ${order.id} 已不存在，可能已成交或过期`);
+                        } else {
+                            Logger.debug(`成功取消僵尸订单 ${order.id}`);
+                        }
+                        return result;
+                    } catch (error) {
+                        Logger.warn(`Failed to cancel zombie order ${order.id}:`, error.message);
+                        return null;
+                    }
+                });
                 
                 await Promise.allSettled(cancelPromises);
                 Logger.info(`Zombie orders cleanup completed for ${this.symbol}`);
@@ -226,7 +249,12 @@ class Trader extends EventEmitter {
                 await this.executeTradingCycle();
                 
             } catch (error) {
-                Logger.error(`Error in trading loop for ${this.symbol}:`, error);
+                Logger.error(`[${this.symbol}] 交易循环错误:`, {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name,
+                    code: error.code
+                });
                 this.stats.errors++;
                 this.stats.lastError = error.message;
                 
@@ -255,6 +283,8 @@ class Trader extends EventEmitter {
         const startTime = Date.now();
         
         try {
+            Logger.info(`[${this.symbol}] 执行交易循环...`);
+            
             // 检查是否暂停
             if (this.isPaused) {
                 Logger.debug(`Trading cycle skipped for ${this.symbol} - paused`);
@@ -268,16 +298,23 @@ class Trader extends EventEmitter {
                 return;
             }
             
+            Logger.info(`[${this.symbol}] 市场数据: 中间价=${marketData.midPrice}, 买价=${marketData.bid}, 卖价=${marketData.ask}`);
+            
             // 检查是否需要更新报价
-            if (!this.shouldUpdateQuotes(marketData)) {
+            const shouldUpdate = this.shouldUpdateQuotes(marketData);
+            Logger.info(`[${this.symbol}] 是否需要更新报价: ${shouldUpdate}`);
+            
+            if (!shouldUpdate) {
                 return;
             }
             
             // 获取当前库存
             const inventory = this.getCurrentInventory();
+            Logger.info(`[${this.symbol}] 当前库存: ${JSON.stringify(inventory)}`);
             
             // 计算新的报价
             const newQuotes = await this.calculateOptimalQuotes(marketData, inventory);
+            Logger.info(`[${this.symbol}] 新报价: 买价=${newQuotes.bidPrice}, 卖价=${newQuotes.askPrice}, 买量=${newQuotes.bidSize}, 卖量=${newQuotes.askSize}`);
             
             // 更新订单
             await this.updateOrders(newQuotes);
@@ -295,6 +332,8 @@ class Trader extends EventEmitter {
             const updateTime = Date.now() - startTime;
             this.stats.avgUpdateTime = (this.stats.avgUpdateTime * (this.stats.totalUpdates - 1) + updateTime) / this.stats.totalUpdates;
             
+            Logger.info(`[${this.symbol}] 交易循环完成，耗时: ${updateTime}ms`);
+            
             // 发出更新事件
             this.emit('quotesUpdated', {
                 symbol: this.symbol,
@@ -306,6 +345,12 @@ class Trader extends EventEmitter {
         } catch (error) {
             this.stats.errors++;
             this.stats.lastError = error.message;
+            Logger.error(`[${this.symbol}] executeTradingCycle错误:`, {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                code: error.code
+            });
             throw error;
         }
     }
@@ -349,24 +394,46 @@ class Trader extends EventEmitter {
         const currentTime = getTimestamp();
         const timeSinceLastUpdate = currentTime - this.lastUpdateTime;
         const currentInventory = this.getCurrentInventory();
+        const currentPosition = this.accountService.getPosition(this.symbol);
         
-        // 时间触发
-        const timeTrigger = timeSinceLastUpdate >= (this.config.REBALANCE_TIME_INTERVAL * 1000);
+        // 首次启动触发（如果从未下过单）
+        const firstTimeTrigger = !this.lastQuotes;
         
-        // 价格变动触发
-        const priceChangePct = this.lastMidPrice > 0 ? 
-            Math.abs(marketData.midPrice - this.lastMidPrice) / this.lastMidPrice : 0;
-        const priceTrigger = priceChangePct >= (this.config.PRICE_MOVE_THRESHOLD_PCT / 100);
-        
-        // 库存变动触发
-        const inventoryChangePct = Math.abs(currentInventory - this.lastInventory);
-        const inventoryTrigger = inventoryChangePct >= 0.1; // 10%库存变化
-        
-        const shouldUpdate = timeTrigger || priceTrigger || inventoryTrigger;
-        
-        if (shouldUpdate) {
-            Logger.debug(`Update triggered for ${this.symbol}: time=${timeTrigger}, price=${priceTrigger}, inventory=${inventoryTrigger}`);
+        // 初始化上次持仓记录
+        if (!this.lastPosition) {
+            this.lastPosition = currentPosition ? { ...currentPosition } : { contracts: 0, side: null };
         }
+        
+        // 检查是否有挂单被触发（通过比较当前持仓与上次记录的持仓）
+        const positionChanged = this.lastPosition && currentPosition &&
+            (Math.abs(currentPosition.contracts - this.lastPosition.contracts) > 0.001);
+        const orderFilledTrigger = positionChanged;
+        
+        // 连接中断导致价格完全偏离挂单范围
+        const connectionRecoveryTrigger = this.networkRecoveryManager && 
+            typeof this.networkRecoveryManager.wasRecentlyRecovered === 'function' &&
+            this.networkRecoveryManager.wasRecentlyRecovered();
+        
+        // 无库存且价差达到初始价差2倍时追单
+        let chaseOrderTrigger = false;
+        if (Math.abs(currentInventory) < 0.01 && this.lastQuotes) { // 基本无库存
+            const initialSpread = this.config.HALF_SPREAD_PCT * 2; // 初始总价差
+            const currentSpreadFromBid = this.lastQuotes.bidPrice > 0 ? 
+                Math.abs(marketData.midPrice - this.lastQuotes.bidPrice) / marketData.midPrice : 0;
+            const currentSpreadFromAsk = this.lastQuotes.askPrice < Number.MAX_SAFE_INTEGER ? 
+                Math.abs(marketData.midPrice - this.lastQuotes.askPrice) / marketData.midPrice : 0;
+            
+            // 如果当前价格与任一挂单的价差达到初始价差的2倍，则触发追单
+            chaseOrderTrigger = currentSpreadFromBid >= (initialSpread * 2) || 
+                               currentSpreadFromAsk >= (initialSpread * 2);
+        }
+        
+        const shouldUpdate = firstTimeTrigger || orderFilledTrigger || connectionRecoveryTrigger || chaseOrderTrigger;
+        
+        Logger.info(`[${this.symbol}] 更新触发检查: 首次=${firstTimeTrigger}, 订单成交=${orderFilledTrigger}, 连接恢复=${connectionRecoveryTrigger}, 追单=${chaseOrderTrigger}`);
+        
+        // 更新上次持仓记录
+        this.lastPosition = { ...currentPosition };
         
         return shouldUpdate;
     }
@@ -401,38 +468,91 @@ class Trader extends EventEmitter {
             // 准备策略输入参数
             const strategyInputs = {
                 midPrice: marketData.midPrice,
-                halfSpreadPct: this.config.HALF_SPREAD_PCT / 100,
+                halfSpreadPct: this.config.HALF_SPREAD_PCT,
                 volatility: 0.02, // 这里应该从历史数据计算，暂时使用固定值
                 riskAversion: this.config.RISK_AVERSION,
-                inventory: inventory,
-                useTraditionalGLFT: this.config.USE_TRADITIONAL_GLFT
+                normalizedInventory: inventory,
+                maxInventoryQ: this.config.MAX_INVENTORY_Q,
+                useTraditionalGLFT: this.config.USE_TRADITIONAL_GLFT,
+                gamma: this.config.RISK_AVERSION,
+                orderFlowA: this.config.ORDER_FLOW_A,
+                orderFlowK: this.config.ORDER_FLOW_K
             };
             
             // 使用策略模块计算报价
             const quotes = MidLowFreqGLFTStrategy.calculateOptimalQuotes(strategyInputs);
             
-            // 检查库存限制
-            const inventoryCheck = MidLowFreqGLFTStrategy.checkInventoryLimits(
-                inventory, 
-                this.config.MAX_INVENTORY_Q
-            );
+            // 如果库存限制导致某个方向被禁用，设置为特殊值
+            let bidPrice = quotes.bidPrice;
+            let askPrice = quotes.askPrice;
             
-            // 根据库存限制调整报价
-            if (!inventoryCheck.canBuy) {
-                quotes.bidPrice = 0; // 禁止买入
+            if (bidPrice === null) {
+                bidPrice = 0; // 禁止买入
             }
             
-            if (!inventoryCheck.canSell) {
-                quotes.askPrice = Number.MAX_SAFE_INTEGER; // 禁止卖出
+            if (askPrice === null) {
+                askPrice = Number.MAX_SAFE_INTEGER; // 禁止卖出
             }
+            
+            // 计算实际下单数量：ORDER_AMOUNT是占总权益的百分比
+            const totalEquity = this.accountService.getTotalEquity();
+            const orderAmount = totalEquity * this.config.ORDER_AMOUNT;
+            
+            Logger.debug(`[${this.symbol}] 下单数量计算: 总权益=${totalEquity}, ORDER_AMOUNT=${this.config.ORDER_AMOUNT}, 订单金额=${orderAmount}, 中间价=${marketData.midPrice}`);
+            
+            // 根据当前价格计算下单数量（合约张数）
+            let bidQuantity = orderAmount / marketData.midPrice;
+            let askQuantity = orderAmount / marketData.midPrice;
+            
+            Logger.debug(`[${this.symbol}] 初始计算数量: bidQuantity=${bidQuantity}, askQuantity=${askQuantity}`);
+            
+            // 获取交易所的最小下单数量和精度
+            const market = this.exchangeService.getMarket(this.symbol);
+            const minAmount = market?.limits?.amount?.min || 0.01;
+            const amountPrecision = market?.precision?.amount || 4;
+            
+            // 根据最小下单数量计算正确的精度位数
+            let precisionDigits = 4; // 默认4位小数
+            if (minAmount >= 1) {
+                precisionDigits = 0;
+            } else if (minAmount >= 0.1) {
+                precisionDigits = 1;
+            } else if (minAmount >= 0.01) {
+                precisionDigits = 2;
+            } else if (minAmount >= 0.001) {
+                precisionDigits = 3;
+            } else if (minAmount >= 0.0001) {
+                precisionDigits = 4;
+            } else {
+                precisionDigits = 8;
+            }
+            
+            Logger.debug(`[${this.symbol}] 市场限制: minAmount=${minAmount}, precisionDigits=${precisionDigits}`);
+            
+            // 如果计算出的数量小于最小下单数量，则使用最小下单数量
+            if (bidQuantity < minAmount) {
+                bidQuantity = minAmount;
+                Logger.debug(`[${this.symbol}] 买单数量调整为最小下单数量: ${minAmount}`);
+            }
+            if (askQuantity < minAmount) {
+                askQuantity = minAmount;
+                Logger.debug(`[${this.symbol}] 卖单数量调整为最小下单数量: ${minAmount}`);
+            }
+            
+            // 根据精度要求进行数量格式化
+            bidQuantity = parseFloat(bidQuantity.toFixed(precisionDigits));
+            askQuantity = parseFloat(askQuantity.toFixed(precisionDigits));
+            
+            Logger.debug(`[${this.symbol}] 最终下单数量: bidQuantity=${bidQuantity}, askQuantity=${askQuantity}`);
             
             return {
-                bidPrice: quotes.bidPrice,
-                askPrice: quotes.askPrice,
-                bidAmount: this.config.ORDER_AMOUNT,
-                askAmount: this.config.ORDER_AMOUNT,
+                bidPrice: bidPrice,
+                askPrice: askPrice,
+                bidSize: bidQuantity,
+                askSize: askQuantity,
                 timestamp: getTimestamp(),
-                inventoryCheck
+                inventoryLimited: quotes.inventoryLimited,
+                strategyMode: quotes.strategyMode
             };
             
         } catch (error) {
@@ -497,23 +617,35 @@ class Trader extends EventEmitter {
             }
         });
         
+        // 根据交易模式确定需要创建的新订单
+        const currentPosition = this.accountService.getPosition(this.symbol);
+        const tradeSide = this.config.TRADE_SIDE; // 'long', 'short', 'both'
+        
         // 确定需要创建的新订单
-        if (newQuotes.bidPrice > 0 && newQuotes.inventoryCheck.canBuy) {
-            operations.toCreate.push({
-                side: 'buy',
-                type: 'limit',
-                amount: newQuotes.bidAmount,
-                price: newQuotes.bidPrice
-            });
+        if (newQuotes.bidPrice > 0) {
+            const buyOrderType = this.determineBuyOrderType(currentPosition, tradeSide);
+            if (buyOrderType) {
+                operations.toCreate.push({
+                    side: 'buy',
+                    type: 'limit',
+                    amount: newQuotes.bidSize,
+                    price: newQuotes.bidPrice,
+                    orderType: buyOrderType // 'open_long' 或 'close_short'
+                });
+            }
         }
         
-        if (newQuotes.askPrice < Number.MAX_SAFE_INTEGER && newQuotes.inventoryCheck.canSell) {
-            operations.toCreate.push({
-                side: 'sell',
-                type: 'limit',
-                amount: newQuotes.askAmount,
-                price: newQuotes.askPrice
-            });
+        if (newQuotes.askPrice < Number.MAX_SAFE_INTEGER) {
+            const sellOrderType = this.determineSellOrderType(currentPosition, tradeSide);
+            if (sellOrderType) {
+                operations.toCreate.push({
+                    side: 'sell',
+                    type: 'limit',
+                    amount: newQuotes.askSize,
+                    price: newQuotes.askPrice,
+                    orderType: sellOrderType // 'close_long' 或 'open_short'
+                });
+            }
         }
         
         return operations;
@@ -548,12 +680,20 @@ class Trader extends EventEmitter {
             if (operations.toCancel.length > 0) {
                 Logger.debug(`Canceling ${operations.toCancel.length} orders for ${this.symbol}`);
                 
-                const cancelPromises = operations.toCancel.map(order =>
-                    this.exchangeService.cancelOrder(order.id, this.symbol)
-                        .catch(error => {
-                            Logger.warn(`Failed to cancel order ${order.id}:`, error.message);
-                        })
-                );
+                const cancelPromises = operations.toCancel.map(async (order) => {
+                    try {
+                        const result = await this.exchangeService.cancelOrder(order.id, this.symbol);
+                        if (result === null) {
+                            Logger.debug(`订单 ${order.id} 已不存在，可能已成交或过期`);
+                        } else {
+                            Logger.debug(`成功取消订单 ${order.id}`);
+                        }
+                        return result;
+                    } catch (error) {
+                        Logger.warn(`Failed to cancel order ${order.id}:`, error.message);
+                        return null;
+                    }
+                });
                 
                 await Promise.allSettled(cancelPromises);
             }
@@ -567,17 +707,53 @@ class Trader extends EventEmitter {
             if (operations.toCreate.length > 0) {
                 Logger.debug(`Creating ${operations.toCreate.length} orders for ${this.symbol}`);
                 
-                const createPromises = operations.toCreate.map(orderSpec =>
-                    this.exchangeService.createOrder(
+                // 获取当前持仓信息以判断是否为平仓操作
+                const currentPosition = this.accountService.getPosition(this.symbol);
+                
+                const createPromises = operations.toCreate.map(orderSpec => {
+                    // 构建订单参数
+                    const params = {};
+                    
+                    // 为Bitget添加双向持仓模式所需的参数
+                    const exchangeName = this.exchangeService.getExchangeName();
+                    if (exchangeName === 'bitget') {
+                        // 根据订单类型设置正确的参数
+                        if (orderSpec.orderType === 'open_long') {
+                            params.positionSide = 'long';
+                            params.tradeSide = 'open';
+                        } else if (orderSpec.orderType === 'close_long') {
+                            params.positionSide = 'long';
+                            params.tradeSide = 'close';
+                            params.reduceOnly = true;
+                        } else if (orderSpec.orderType === 'open_short') {
+                            params.positionSide = 'short';
+                            params.tradeSide = 'open';
+                        } else if (orderSpec.orderType === 'close_short') {
+                            params.positionSide = 'short';
+                            params.tradeSide = 'close';
+                            params.reduceOnly = true;
+                        }
+                    } else {
+                        // 对于其他交易所，使用通用的 reduceOnly 参数
+                        const isReduceOrder = this.isReduceOnlyOrder(orderSpec, currentPosition);
+                        if (isReduceOrder) {
+                            params.reduceOnly = true;
+                        }
+                    }
+                    
+                    Logger.debug(`Creating ${orderSpec.orderType || 'unknown'} ${orderSpec.side} order for ${this.symbol}`);
+                    
+                    return this.exchangeService.createOrder(
                         this.symbol,
                         orderSpec.type,
                         orderSpec.side,
                         orderSpec.amount,
-                        orderSpec.price
+                        orderSpec.price,
+                        params
                     ).catch(error => {
                         Logger.warn(`Failed to create ${orderSpec.side} order:`, error.message);
-                    })
-                );
+                    });
+                });
                 
                 await Promise.allSettled(createPromises);
             }
@@ -586,6 +762,67 @@ class Trader extends EventEmitter {
             Logger.error(`Error in batch order operations for ${this.symbol}:`, error);
             throw error;
         }
+    }
+    
+    /**
+     * 判断订单是否为平仓操作
+     * @param {object} orderSpec - 订单规格
+     * @param {object} currentPosition - 当前持仓信息
+     * @returns {boolean} 是否为平仓操作
+     */
+    /**
+     * 判断买单类型（开多 vs 平空）
+     * @param {object} currentPosition - 当前持仓
+     * @param {string} tradeSide - 交易模式 ('long', 'short', 'both')
+     * @returns {string|null} - 'open_long', 'close_short' 或 null
+     */
+    determineBuyOrderType(currentPosition, tradeSide) {
+        const hasShortPosition = currentPosition && currentPosition.side === 'short' && currentPosition.contracts > 0;
+        
+        if (hasShortPosition) {
+            // 有空头持仓，买单用于平空
+            return 'close_short';
+        } else if (tradeSide === 'long' || tradeSide === 'both') {
+            // 无空头持仓且允许做多，买单用于开多
+            return 'open_long';
+        }
+        
+        return null; // 不创建买单
+    }
+    
+    /**
+     * 判断卖单类型（平多 vs 开空）
+     * @param {object} currentPosition - 当前持仓
+     * @param {string} tradeSide - 交易模式 ('long', 'short', 'both')
+     * @returns {string|null} - 'close_long', 'open_short' 或 null
+     */
+    determineSellOrderType(currentPosition, tradeSide) {
+        const hasLongPosition = currentPosition && currentPosition.side === 'long' && currentPosition.contracts > 0;
+        
+        if (hasLongPosition) {
+            // 有多头持仓，卖单用于平多
+            return 'close_long';
+        } else if (tradeSide === 'short' || tradeSide === 'both') {
+            // 无多头持仓且允许做空，卖单用于开空
+            return 'open_short';
+        }
+        
+        return null; // 不创建卖单
+    }
+    
+    /**
+     * 判断是否为平仓订单
+     * @param {object} orderSpec - 订单规格
+     * @param {object} currentPosition - 当前持仓
+     * @returns {boolean}
+     */
+    isReduceOnlyOrder(orderSpec, currentPosition) {
+        if (!currentPosition || currentPosition.contracts === 0) {
+            return false;
+        }
+        
+        // 根据订单类型判断是否为平仓订单
+        return orderSpec.orderType === 'close_long' || orderSpec.orderType === 'close_short';
     }
     
     /**
@@ -599,12 +836,20 @@ class Trader extends EventEmitter {
             if (orders.length > 0) {
                 Logger.info(`Canceling ${orders.length} active orders for ${this.symbol}`);
                 
-                const cancelPromises = orders.map(order =>
-                    this.exchangeService.cancelOrder(order.id, this.symbol)
-                        .catch(error => {
-                            Logger.warn(`Failed to cancel order ${order.id}:`, error.message);
-                        })
-                );
+                const cancelPromises = orders.map(async (order) => {
+                    try {
+                        const result = await this.exchangeService.cancelOrder(order.id, this.symbol);
+                        if (result === null) {
+                            Logger.debug(`活动订单 ${order.id} 已不存在，可能已成交或过期`);
+                        } else {
+                            Logger.debug(`成功取消活动订单 ${order.id}`);
+                        }
+                        return result;
+                    } catch (error) {
+                        Logger.warn(`Failed to cancel order ${order.id}:`, error.message);
+                        return null;
+                    }
+                });
                 
                 await Promise.allSettled(cancelPromises);
             }
@@ -810,6 +1055,102 @@ class Trader extends EventEmitter {
         }
         
         return this.orderRecoveryManager.getRecoveryStats();
+    }
+    
+    /**
+     * 初始化网络恢复管理器
+     * @private
+     * @returns {Promise<void>}
+     */
+    async initializeNetworkRecovery() {
+        try {
+            // 暂时禁用网络恢复管理器以确保程序正常运行
+            Logger.info(`Network recovery manager disabled for ${this.symbol} (temporary)`);
+            return;
+            
+            
+        } catch (error) {
+            Logger.error(`Failed to initialize network recovery for ${this.symbol}:`, error.message);
+            Logger.error(`Network recovery error stack:`, error.stack);
+            // 不抛出错误，允许交易器继续运行
+        }
+    }
+    
+    /**
+     * 设置网络恢复事件监听器
+     * @private
+     */
+    setupNetworkRecoveryEventListeners() {
+        if (!this.networkRecoveryManager) {
+            return;
+        }
+        
+        // 监听网络连接丢失事件
+        this.networkRecoveryManager.on('connection_lost', () => {
+            Logger.warn(`Network connection lost for ${this.symbol}`);
+            
+            // 暂停交易循环
+            this.pause();
+            this.emit('network_connection_lost', { symbol: this.symbol });
+        });
+        
+        // 监听网络恢复事件
+        this.networkRecoveryManager.on('connection_restored', () => {
+            Logger.info(`Network connection restored for ${this.symbol}`);
+            
+            // 恢复交易循环
+            if (this.isPaused) {
+                this.resume();
+            }
+            this.emit('network_connection_restored', { symbol: this.symbol });
+        });
+        
+        // 监听网络恢复失败事件
+        this.networkRecoveryManager.on('recovery_failed', (error) => {
+            Logger.error(`Network recovery failed for ${this.symbol}:`, error);
+            this.emit('network_recovery_failed', { symbol: this.symbol, error });
+            
+            // 网络恢复失败时的处理
+            this.handleNetworkRecoveryFailure(error);
+        });
+    }
+    
+    /**
+     * 处理网络恢复失败
+     * @private
+     * @param {Error} error - 错误信息
+     */
+    handleNetworkRecoveryFailure(error) {
+        try {
+            // 记录错误统计
+            this.stats.errors++;
+            this.stats.lastError = error.message;
+            
+            // 暂停交易器
+            this.pause();
+            
+            // 发送告警
+            this.emit('critical_error', {
+                symbol: this.symbol,
+                type: 'network_recovery_failed',
+                message: 'Network recovery has failed after multiple attempts'
+            });
+            
+        } catch (err) {
+            Logger.error(`Error handling network recovery failure for ${this.symbol}:`, err);
+        }
+    }
+    
+    /**
+     * 获取网络恢复统计信息
+     * @returns {Object|null}
+     */
+    getNetworkRecoveryStats() {
+        if (!this.networkRecoveryManager) {
+            return null;
+        }
+        
+        return this.networkRecoveryManager.getStats();
     }
     
     /**

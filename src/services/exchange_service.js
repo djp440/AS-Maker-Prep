@@ -99,8 +99,20 @@ class ExchangeService {
         }
       }
 
-      // 验证连接
-      await this.exchange.loadMarkets();
+      // 验证连接并加载市场信息
+      await this.loadMarkets();
+      
+      // 对于Bitget交易所，强制设置为双向持仓模式
+      if (exchangeName === "bitget") {
+        try {
+          await this.exchange.setPositionMode(true); // true表示双向持仓模式
+          Logger.info("Bitget交易所已设置为双向持仓模式");
+        } catch (error) {
+          Logger.warn("设置双向持仓模式失败，请手动在Bitget网站设置:", error.message);
+          // 不抛出错误，因为可能账户已经是双向持仓模式
+        }
+      }
+      
       Logger.info("交易所连接成功");
     } catch (error) {
       Logger.error("交易所初始化失败:", error);
@@ -264,13 +276,30 @@ class ExchangeService {
    * @returns {Promise<object>} 取消结果
    */
   async cancelOrder(id, symbol, params = {}) {
-    return await this.executeWithRetry(
-      this.exchange.cancelOrder,
-      `取消订单 ${id}`,
-      id,
-      symbol,
-      params
-    );
+    try {
+      return await this.executeWithRetry(
+        this.exchange.cancelOrder,
+        `取消订单 ${id}`,
+        id,
+        symbol,
+        params
+      );
+    } catch (error) {
+      // 处理订单不存在的情况（这是正常情况，不应该抛出错误）
+      if (error.message && (
+          error.message.includes('Order does not exist') ||
+          error.message.includes('40768') ||
+          error.message.includes('order not found') ||
+          error.message.includes('订单不存在')
+        )) {
+        Logger.info(`订单 ${id} 已不存在，可能已成交或过期`);
+        return null; // 返回null表示订单已不存在
+      }
+      
+      // 其他错误继续抛出
+      Logger.error(`取消订单 ${id} 最终失败: ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -371,6 +400,17 @@ class ExchangeService {
    */
   isInitialized() {
     return this.exchange !== null;
+  }
+
+  /**
+   * @description 获取当前交易所名称
+   * @returns {string} 交易所名称
+   */
+  getExchangeName() {
+    if (!this.exchange) {
+      throw new Error("交易所未初始化");
+    }
+    return this.exchange.id;
   }
 }
 
